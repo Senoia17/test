@@ -39,10 +39,24 @@ python aruco_diorama_mapper.py drone.jpg arena_map.png \
 python tests/synthetic_mapping_test.py
 ```
 
-성공하면 다음 메시지가 출력됩니다.
+기본 실행은 pass/fail만 출력하고 이미지는 저장하지 않습니다. 결과 이미지를 직접 확인하려면 `--output-dir`를 지정하세요.
+
+```bash
+python tests/synthetic_mapping_test.py --output-dir test_outputs
+```
+
+성공하면 다음 파일이 생성됩니다.
+
+- `test_outputs/01_expected_top_down.png`: 테스트가 기대하는 정답 평면 대회장 이미지
+- `test_outputs/02_synthetic_drone_input.png`: 드론 촬영처럼 원근 변환한 입력 이미지
+- `test_outputs/03_mapped_output.png`: 매퍼가 복원한 평면 지도 결과
+- `test_outputs/04_detected_markers_debug.png`: 검출된 마커와 꼭짓점 순서 표시 이미지
+- `test_outputs/metadata.json`: 검출 좌표, 목적지 좌표, 호모그래피 행렬
+
+성공하면 다음과 비슷한 메시지가 출력됩니다.
 
 ```text
-Synthetic ArUco mapping smoke test passed.
+Synthetic ArUco mapping smoke test passed. Artifacts saved to: test_outputs
 ```
 
 ## 4. 문법 검사

@@ -4,10 +4,15 @@
 This test creates an artificial top-down arena image with four ArUco markers,
 warps it into a simulated drone perspective image, then verifies that the mapper
 recovers a top-down map with the expected size and detectable corner markers.
+
+By default the test only prints a pass/fail result. Use --output-dir to keep
+visual artifacts for manual inspection.
 """
 
 from __future__ import annotations
 
+import argparse
+import json
 import tempfile
 from pathlib import Path
 
@@ -19,6 +24,7 @@ from aruco_diorama_mapper import (
     detect_markers,
     marker_centers,
     select_source_points,
+    write_debug_image,
 )
 
 MARKER_IDS = [10, 11, 12, 13]
@@ -26,6 +32,16 @@ WIDTH_M = 4.0
 HEIGHT_M = 2.5
 PIXELS_PER_METER = 120
 DICT_NAME = "DICT_4X4_50"
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run a synthetic ArUco mapping smoke test.")
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        help="Optional directory where synthetic input, mapped output, debug overlay, and metadata are saved.",
+    )
+    return parser.parse_args()
 
 
 def draw_marker(dictionary: cv2.aruco.Dictionary, marker_id: int, size_px: int) -> np.ndarray:
@@ -63,12 +79,48 @@ def simulate_drone_view(top_down: np.ndarray) -> np.ndarray:
     return cv2.warpPerspective(top_down, homography, (width, height), borderValue=(255, 255, 255))
 
 
-def main() -> None:
-    drone_image = simulate_drone_view(build_top_down_arena())
-    with tempfile.TemporaryDirectory() as tmpdir:
-        debug_path = Path(tmpdir) / "synthetic_drone.png"
-        cv2.imwrite(str(debug_path), drone_image)
+def save_artifacts(
+    output_dir: Path,
+    top_down: np.ndarray,
+    drone_image: np.ndarray,
+    mapped: np.ndarray,
+    corners: list[np.ndarray],
+    ids: np.ndarray,
+    source_points: np.ndarray,
+    destination_points: np.ndarray,
+    homography: np.ndarray,
+) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(str(output_dir / "01_expected_top_down.png"), top_down)
+    cv2.imwrite(str(output_dir / "02_synthetic_drone_input.png"), drone_image)
+    cv2.imwrite(str(output_dir / "03_mapped_output.png"), mapped)
+    write_debug_image(drone_image, corners, ids, source_points, output_dir / "04_detected_markers_debug.png")
 
+    metadata = {
+        "marker_ids": MARKER_IDS,
+        "width_m": WIDTH_M,
+        "height_m": HEIGHT_M,
+        "pixels_per_meter": PIXELS_PER_METER,
+        "source_points_px": source_points.tolist(),
+        "destination_points_px": destination_points.tolist(),
+        "homography": homography.tolist(),
+        "artifacts": [
+            "01_expected_top_down.png",
+            "02_synthetic_drone_input.png",
+            "03_mapped_output.png",
+            "04_detected_markers_debug.png",
+        ],
+    }
+    (output_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+
+
+def main() -> None:
+    args = parse_args()
+    top_down = build_top_down_arena()
+    drone_image = simulate_drone_view(top_down)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        work_dir = args.output_dir or Path(tmpdir)
         corners, ids = detect_markers(drone_image, DICT_NAME)
         centers = marker_centers(corners, ids)
         source_points, selected_ids = select_source_points(centers, MARKER_IDS)
@@ -76,11 +128,26 @@ def main() -> None:
             drone_image, source_points, WIDTH_M, HEIGHT_M, PIXELS_PER_METER
         )
 
-    assert selected_ids == MARKER_IDS
-    assert mapped.shape[:2] == (int(HEIGHT_M * PIXELS_PER_METER), int(WIDTH_M * PIXELS_PER_METER))
-    assert destination_points.shape == (4, 2)
-    assert homography.shape == (3, 3)
-    print("Synthetic ArUco mapping smoke test passed.")
+        assert selected_ids == MARKER_IDS
+        assert mapped.shape[:2] == (int(HEIGHT_M * PIXELS_PER_METER), int(WIDTH_M * PIXELS_PER_METER))
+        assert destination_points.shape == (4, 2)
+        assert homography.shape == (3, 3)
+
+        if args.output_dir:
+            save_artifacts(
+                work_dir,
+                top_down,
+                drone_image,
+                mapped,
+                corners,
+                ids,
+                source_points,
+                destination_points,
+                homography,
+            )
+            print(f"Synthetic ArUco mapping smoke test passed. Artifacts saved to: {work_dir}")
+        else:
+            print("Synthetic ArUco mapping smoke test passed. Use --output-dir test_outputs to save images.")
 
 
 if __name__ == "__main__":
