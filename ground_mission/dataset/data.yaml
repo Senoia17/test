@@ -1,0 +1,10 @@
+path: ./dataset
+train: images/train
+val: images/val
+
+names:
+  0: crater
+  1: missile
+  2: cluster
+  3: dumb
+
