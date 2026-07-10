@@ -28,7 +28,9 @@ ground_mission/
       val/
   src/
     aruco_homography.py
+    calibration.py
     crater_size.py
+    frame_alignment.py
     geometry.py
     infer_ground.py
     json_writer.py
@@ -57,6 +59,25 @@ Copy it to:
 weights/ground_best.pt
 ```
 
+## Camera Calibration
+
+Lens distortion is a camera/lens property, so estimate it once for the drone camera and reuse the JSON for every frame captured with the same lens/zoom setting.
+
+```bash
+python src/calibration.py --images-dir data/calibration --output configs/calibration.json
+```
+
+`calibration.py` exposes helpers used by inference and frame alignment. A calibration JSON has:
+
+```json
+{
+  "camera_matrix": [[...], [...], [...]],
+  "distortion_coefficients": [...],
+  "image_size": [width, height],
+  "reprojection_error": 0.42
+}
+```
+
 ## Create Homography
 
 Use a high-altitude image where all four ArUco corner markers are visible.
@@ -74,10 +95,29 @@ The script assumes four ArUco marker IDs:
 
 These map to a 500 cm x 400 cm field.
 
+## Sequential Frame Alignment
+
+When the current drone frame is too different from the full map, estimate local homographies between neighboring frames and compose them into the map coordinate system. This supports the `local tracking + global correction` workflow and can also write warped preview frames.
+
+```bash
+python src/frame_alignment.py \
+  --map-image data/overview.jpg \
+  --frames-dir data/frames \
+  --output-dir outputs/alignment \
+  --calibration-json configs/calibration.json \
+  --map-homography configs/homography.pkl
+```
+
+The metadata contains `homography_current_to_map_px` and, when `--map-homography` is supplied, `homography_current_to_world`.
+
 ## Inference
 
 ```bash
-python src/infer_ground.py --source data/runway_video.mp4 --weights weights/ground_best.pt
+python src/infer_ground.py \
+  --source data/runway_video.mp4 \
+  --weights weights/ground_best.pt \
+  --homography configs/homography.pkl \
+  --calibration configs/calibration.json
 ```
 
 Outputs:

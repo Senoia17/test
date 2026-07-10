@@ -2,8 +2,10 @@ import argparse
 import pickle
 from pathlib import Path
 
+import cv2
 from ultralytics import YOLO
 
+from calibration import load_calibration, undistort_image
 from crater_size import classify_crater_size
 from geometry import (
     bbox_center_xyxy,
@@ -38,16 +40,41 @@ def infer(
     output_dir,
     conf=0.3,
     imgsz=1280,
+    calibration_path=None,
 ):
     model = YOLO(weights_path)
     homography = load_homography(homography_path)
     zones = load_zones(zones_path)
+    calibration = load_calibration(calibration_path) if calibration_path else None
 
     crater_items = []
     uxo_items = []
 
+    prediction_source = source_path
+    if calibration is not None:
+        # Ultralytics accepts numpy images for single-frame sources. For video,
+        # undistort frame-by-frame before prediction so pixel coordinates and
+        # homography use the same corrected camera model.
+        capture = cv2.VideoCapture(str(source_path))
+        if capture.isOpened():
+            def undistorted_frames():
+                try:
+                    while True:
+                        ok, frame = capture.read()
+                        if not ok:
+                            break
+                        yield undistort_image(frame, calibration)
+                finally:
+                    capture.release()
+            prediction_source = undistorted_frames()
+        else:
+            image = cv2.imread(str(source_path))
+            if image is None:
+                raise FileNotFoundError(source_path)
+            prediction_source = undistort_image(image, calibration)
+
     results = model.predict(
-        source=source_path,
+        source=prediction_source,
         conf=conf,
         imgsz=imgsz,
         stream=True,
@@ -110,6 +137,7 @@ def main():
     parser.add_argument("--output", default="outputs")
     parser.add_argument("--conf", type=float, default=0.3)
     parser.add_argument("--imgsz", type=int, default=1280)
+    parser.add_argument("--calibration", help="Optional camera calibration JSON for lens undistortion")
     args = parser.parse_args()
 
     infer(
@@ -120,6 +148,7 @@ def main():
         output_dir=args.output,
         conf=args.conf,
         imgsz=args.imgsz,
+        calibration_path=args.calibration,
     )
 
 
