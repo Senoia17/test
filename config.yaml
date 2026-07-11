@@ -29,6 +29,9 @@ models:
 missions:
   obstacle:
     adapter: ground_mission_obstacle_detection
+    conf: 0.3
+    imgsz: 640
+    sample_interval: 10
   mapping:
     adapter: aruco_homography
   facility:
