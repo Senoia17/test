@@ -7,6 +7,7 @@ from typing import Any
 
 from calibration.camera_model import CameraModel
 from calibration.undistort import undistort_frame
+from mapping.aruco_config import resolve_corner_ids, resolve_dictionary_name
 from mapping.aruco_detector import detect_aruco_markers
 
 
@@ -54,11 +55,14 @@ def select_best_frame(
     *,
     sample_interval: int = 30,
     camera_model: CameraModel | None = None,
-    dictionary_name: str = "DICT_4X4_50",
-    required_ids: tuple[int, ...] = (0, 1, 2, 3),
+    dictionary_name: str | None = None,
+    required_ids: tuple[int, ...] | None = None,
 ) -> tuple[Any, dict[str, object]]:
     """Sample a mapping video and return the best ArUco-rich frame plus metadata."""
     import cv2
+
+    dictionary_name = resolve_dictionary_name(dictionary_name)
+    required_ids = resolve_corner_ids(required_ids)
 
     capture = cv2.VideoCapture(str(video_path))
     if not capture.isOpened():

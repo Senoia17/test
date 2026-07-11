@@ -15,6 +15,12 @@ paths:
   map_info: data/map/map_info.json
   aruco_points: data/map/aruco_points.json
 
+mapping:
+  aruco:
+    dictionary: DICT_5X5_50
+    corner_ids: [1, 2, 3, 4]
+    world_corners_cm: [[0.0, 0.0], [500.0, 0.0], [500.0, 400.0], [0.0, 400.0]]
+
 models:
   obstacle_weights: ground_mission/ObstacleDetection/weights/best.pt
   ground_weights: ground_mission/weights/ground_best.pt
@@ -23,6 +29,11 @@ models:
 missions:
   obstacle:
     adapter: ground_mission_obstacle_detection
+    conf: 0.3
+    imgsz: 640
+    sample_interval: 10
+    crater_count: 3
+    uxo_count: 5
   mapping:
     adapter: aruco_homography
   facility:
