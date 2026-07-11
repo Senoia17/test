@@ -1,18 +1,95 @@
-"""Obstacle mission adapter.
-
-Phase 1 keeps the existing obstacle implementation intact and delegates to it.
-"""
+"""End-to-end obstacle mission pipeline."""
 
 from __future__ import annotations
 
-import importlib.util
-import sys
+import json
+import pickle
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
+
+from calibration.camera_model import CameraModel
+from calibration.undistort import undistort_frame
+from detection.object_detector import ObjectDetector
+from localization.localizer import FrameLocalizer
+from mission.json_writer import write_json
+from obstacle.obstacle_analyzer import analyze_obstacles
+from utils.video import iter_video_frames
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-LEGACY_OBSTACLE_DIR = REPO_ROOT / "ground_mission" / "ObstacleDetection"
+def _load_camera_model(path: str | Path | None) -> CameraModel | None:
+    if path is None:
+        return None
+    calibration_path = Path(path)
+    if not calibration_path.exists():
+        return None
+    return CameraModel.load(calibration_path)
+
+
+def _load_marker_positions(map_info_path: str | Path | None) -> dict[int, list[float]] | None:
+    if map_info_path is None:
+        return None
+    path = Path(map_info_path)
+    if not path.exists():
+        return None
+    data = json.loads(path.read_text(encoding="utf-8"))
+    markers = data.get("markers")
+    if not isinstance(markers, Mapping):
+        return None
+    return {int(marker_id): [float(point[0]), float(point[1])] for marker_id, point in markers.items()}
+
+
+def _load_pickle(path: str | Path | None) -> Any | None:
+    if path is None:
+        return None
+    artifact_path = Path(path)
+    if not artifact_path.exists():
+        return None
+    with artifact_path.open("rb") as file:
+        return pickle.load(file)
+
+
+def _require_existing_file(path: str | Path | None, label: str) -> Path:
+    if path is None:
+        raise ValueError(f"Obstacle mission requires {label}")
+    file_path = Path(path)
+    if not file_path.exists():
+        raise FileNotFoundError(f"{label} not found: {file_path}")
+    return file_path
+
+
+def _unlocalized_detection(detection: Mapping[str, Any]) -> dict[str, object]:
+    class_name = str(detection.get("class"))
+    result: dict[str, object] = {
+        "type": class_name,
+        "bbox": list(detection.get("bbox", [])),
+        "confidence": detection.get("confidence"),
+        "localized": False,
+        "position": None,
+    }
+    if class_name in {"missile", "cluster", "dumb"}:
+        result["group"] = "UXO"
+    return result
+
+
+def run_legacy_obstacle_pipeline(input_path: Path | None = None) -> None:
+    """Run the preserved legacy ObstacleDetection pipeline on demand."""
+    import importlib.util
+    import sys
+
+    legacy_obstacle_dir = Path(__file__).resolve().parents[1] / "ground_mission" / "ObstacleDetection"
+    if str(legacy_obstacle_dir) not in sys.path:
+        sys.path.insert(0, str(legacy_obstacle_dir))
+
+    legacy_main_path = legacy_obstacle_dir / "main.py"
+    spec = importlib.util.spec_from_file_location("legacy_obstacle_main", legacy_main_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load legacy obstacle pipeline: {legacy_main_path}")
+    legacy_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(legacy_module)
+    if input_path is None:
+        legacy_module.run_pipeline()
+    else:
+        legacy_module.run_pipeline(video_path=Path(input_path))
 
 
 def run_obstacle_pipeline(
@@ -21,31 +98,124 @@ def run_obstacle_pipeline(
     config: dict[str, Any],
     dry_run: bool = False,
 ) -> dict[str, Any] | None:
-    """Run the existing runway/taxiway obstacle detection pipeline."""
+    """Run obstacle detection, localization, analysis, and JSON output."""
     if dry_run:
-        print("[DRY-RUN] mission=obstacle adapter=ground_mission/ObstacleDetection")
-        return {"mission": "obstacle", "adapter": "ground_mission/ObstacleDetection"}
+        print("[DRY-RUN] mission=obstacle adapter=mission.obstacle_pipeline")
+        return {"mission": "obstacle", "adapter": "mission.obstacle_pipeline"}
 
-    if str(LEGACY_OBSTACLE_DIR) not in sys.path:
-        sys.path.insert(0, str(LEGACY_OBSTACLE_DIR))
-
-    legacy_main_path = LEGACY_OBSTACLE_DIR / "main.py"
-    spec = importlib.util.spec_from_file_location("legacy_obstacle_main", legacy_main_path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Cannot load legacy obstacle pipeline: {legacy_main_path}")
-    legacy_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(legacy_module)
-    legacy_run_pipeline = legacy_module.run_pipeline
+    paths_config = config.get("paths", {})
+    models_config = config.get("models", {})
+    mission_config = config.get("missions", {}).get("obstacle", {})
 
     video_path = input_path
     if video_path is None:
-        mission_config = config.get("paths", {})
-        configured_input = mission_config.get("input")
+        configured_input = paths_config.get("obstacle_video") or paths_config.get("input")
         video_path = Path(configured_input) if configured_input else None
+    video_path = _require_existing_file(video_path, "obstacle video")
 
-    if video_path is None:
-        legacy_run_pipeline()
-    else:
-        legacy_run_pipeline(video_path=Path(video_path))
+    weights_path = models_config.get("obstacle_weights") or models_config.get("ground_weights")
+    weights_path = _require_existing_file(weights_path, "obstacle YOLO weights")
 
-    return None
+    calibration_path = _require_existing_file(paths_config.get("calibration"), "calibration file")
+
+    if output_path is None:
+        output_dir = Path(paths_config.get("output_dir", "outputs"))
+        output_path = output_dir / "obstacle_results.json"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    global_map_path = _require_existing_file(paths_config.get("global_map", "data/map/global_map.jpg"), "global map artifact")
+    map_info_path = _require_existing_file(paths_config.get("map_info", "data/map/map_info.json"), "map info artifact")
+    configured_homography = paths_config.get("homography")
+    homography_path = Path(configured_homography) if configured_homography else Path(paths_config.get("map_output_dir", "data/map")) / "homography.pkl"
+    if not homography_path.exists():
+        fallback_homography = Path(paths_config.get("map_output_dir", "data/map")) / "homography.pkl"
+        homography_path = fallback_homography if fallback_homography.exists() else homography_path
+    homography_path = _require_existing_file(homography_path, "homography artifact")
+
+    camera_model = CameraModel.load(calibration_path)
+    marker_positions = _load_marker_positions(map_info_path)
+    homography_artifact = _load_pickle(homography_path)
+
+    detector = ObjectDetector(
+        weights_path,
+        conf=float(mission_config.get("conf", 0.3)),
+        imgsz=int(mission_config.get("imgsz", 1280)),
+    )
+    localizer = FrameLocalizer(
+        global_map_path=global_map_path if global_map_path.exists() else None,
+        marker_positions=marker_positions,
+    )
+
+    crater_results: list[dict[str, object]] = []
+    uxo_results: list[dict[str, object]] = []
+    frame_summaries: list[dict[str, object]] = []
+
+    for frame_index, frame in iter_video_frames(video_path):
+        undistorted = undistort_frame(frame, camera_model)
+        detections = detector.detect(undistorted)
+        localization = localizer.localize(undistorted)
+
+        frame_summary: dict[str, object] = {
+            "frame_index": frame_index,
+            "detections": len(detections),
+            "localized": localization is not None,
+        }
+
+        if localization is None:
+            frame_summary["reason"] = "localization_failed"
+            for detection in detections:
+                item = _unlocalized_detection(detection)
+                item["frame_index"] = frame_index
+                if item.get("type") == "crater":
+                    crater_results.append(item)
+                elif item.get("type") in {"missile", "cluster", "dumb"}:
+                    uxo_results.append(item)
+            frame_summaries.append(frame_summary)
+            continue
+
+        analyzed = analyze_obstacles(detections, localization["H"])
+        localization_method = localization.get("method")
+        localization_confidence = localization.get("confidence")
+
+        for crater in analyzed["craters"]:
+            crater = dict(crater)
+            crater["frame_index"] = frame_index
+            crater["localization_method"] = localization_method
+            crater["localized"] = True
+            crater_results.append(crater)
+
+        for uxo in analyzed["uxos"]:
+            uxo = dict(uxo)
+            uxo["frame_index"] = frame_index
+            uxo["localization_method"] = localization_method
+            uxo["localized"] = True
+            uxo_results.append(uxo)
+
+        frame_summary.update(
+            {
+                "localization_method": localization_method,
+                "localization_confidence": localization_confidence,
+                "craters": len(analyzed["craters"]),
+                "uxos": len(analyzed["uxos"]),
+            }
+        )
+        frame_summaries.append(frame_summary)
+
+    payload = {
+        "mission": "obstacle",
+        "input": str(video_path),
+        "map_artifacts": {
+            "global_map": str(global_map_path),
+            "map_info": str(paths_config.get("map_info", "data/map/map_info.json")),
+            "homography": str(homography_path),
+            "homography_loaded": homography_artifact is not None,
+            "calibration": str(calibration_path),
+        },
+        "frames": frame_summaries,
+        "results": {
+            "craters": crater_results,
+            "uxos": uxo_results,
+        },
+    }
+    write_json(payload, output_path)
+    return payload
