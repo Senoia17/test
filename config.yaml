@@ -1,0 +1,25 @@
+# Phase 1 architecture configuration.
+# Existing implementation paths are preserved and called through mission adapters.
+paths:
+  input: null
+  output_dir: outputs
+  calibration: configs/calibration.json
+  homography: ground_mission/configs/homography.pkl
+  zones: ground_mission/configs/zones.yaml
+  map_image: data/overview.jpg
+  global_map: data/map/global_map.jpg
+  map_info: data/map/map_info.json
+  aruco_points: data/map/aruco_points.json
+
+models:
+  obstacle_weights: ground_mission/ObstacleDetection/weights/best.pt
+  ground_weights: ground_mission/weights/ground_best.pt
+  facility_damage_weights: runs/facility/facility_damage_cls/weights/best.pt
+
+missions:
+  obstacle:
+    adapter: ground_mission_obstacle_detection
+  mapping:
+    adapter: aruco_homography
+  facility:
+    adapter: facility_state_infer
