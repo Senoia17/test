@@ -136,6 +136,8 @@ def run_obstacle_pipeline(
     marker_positions = _load_marker_positions(map_info_path)
     homography_artifact = _load_pickle(homography_path)
 
+    sample_interval = max(1, int(mission_config.get("sample_interval", 1)))
+
     detector = ObjectDetector(
         weights_path,
         conf=float(mission_config.get("conf", 0.3)),
@@ -150,7 +152,14 @@ def run_obstacle_pipeline(
     uxo_results: list[dict[str, object]] = []
     frame_summaries: list[dict[str, object]] = []
 
+    processed_frame_count = 0
     for frame_index, frame in iter_video_frames(video_path):
+        if frame_index % sample_interval != 0:
+            continue
+        processed_frame_count += 1
+        if processed_frame_count == 1 or processed_frame_count % 50 == 0:
+            print(f"[Obstacle] Processing frame {frame_index}")
+
         undistorted = undistort_frame(frame, camera_model)
         detections = detector.detect(undistorted)
         localization = localizer.localize(undistorted)
