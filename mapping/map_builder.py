@@ -35,8 +35,13 @@ def build_global_map(
     """Build a bird-eye global map from a mapping video and save artifacts."""
     import cv2
 
-    if camera_model is None and calibration_path is not None and Path(calibration_path).exists():
-        camera_model = CameraModel.load(calibration_path)
+    if camera_model is None:
+        if calibration_path is None:
+            raise ValueError("Mapping requires calibration_path or camera_model")
+        calibration_file = Path(calibration_path)
+        if not calibration_file.exists():
+            raise FileNotFoundError(f"Calibration file not found: {calibration_file}")
+        camera_model = CameraModel.load(calibration_file)
 
     positions = marker_positions or FIELD_CORNERS_CM
     output_path = Path(output_dir)

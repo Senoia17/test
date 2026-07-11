@@ -4,6 +4,7 @@ paths:
   input: null
   mapping_video: mapping_video.mp4
   obstacle_video: null
+  facility_video: null
   output_dir: outputs
   map_output_dir: data/map
   calibration: configs/calibration.json

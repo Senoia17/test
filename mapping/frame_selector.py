@@ -55,6 +55,7 @@ def select_best_frame(
     sample_interval: int = 30,
     camera_model: CameraModel | None = None,
     dictionary_name: str = "DICT_4X4_50",
+    required_ids: tuple[int, ...] = (0, 1, 2, 3),
 ) -> tuple[Any, dict[str, object]]:
     """Sample a mapping video and return the best ArUco-rich frame plus metadata."""
     import cv2
@@ -76,6 +77,11 @@ def select_best_frame(
         if frame_index % sample_interval == 0:
             candidate = undistort_frame(frame, camera_model)
             markers = detect_aruco_markers(candidate, dictionary_name=dictionary_name)
+            marker_ids = {int(marker["id"]) for marker in markers}
+            if not set(required_ids).issubset(marker_ids):
+                frame_index += 1
+                continue
+
             score = score_markers(markers, candidate.shape)
             metadata = {
                 "frame_index": frame_index,
@@ -86,7 +92,7 @@ def select_best_frame(
             if best_metadata is None or score > float(best_metadata["score"]):
                 best_frame = candidate
                 best_metadata = metadata
-                if len(markers) >= 4 and score >= 0.95:
+                if score >= 0.95:
                     break
 
         frame_index += 1
@@ -94,6 +100,6 @@ def select_best_frame(
     capture.release()
 
     if best_frame is None or best_metadata is None:
-        raise ValueError(f"No frames could be sampled from mapping video: {video_path}")
+        raise ValueError("No valid mapping frame with all required ArUco markers")
 
     return best_frame, best_metadata

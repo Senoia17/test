@@ -46,7 +46,10 @@ class FrameLocalizer:
         """Run ArUco, map-matching, temporal matching, then select the best H."""
         candidates: list[dict[str, object] | None] = []
 
-        aruco_result = localize_with_aruco(current_frame, self.marker_positions)
+        try:
+            aruco_result = localize_with_aruco(current_frame, self.marker_positions)
+        except Exception as exc:
+            aruco_result = {"method": "aruco", "H": None, "confidence": 0.0, "error": str(exc)}
         candidates.append(aruco_result)
 
         map_result = None
@@ -60,8 +63,8 @@ class FrameLocalizer:
                     ransac_threshold=self.ransac_threshold,
                     min_good_matches=self.min_good_matches,
                 )
-            except RuntimeError:
-                map_result = None
+            except Exception as exc:
+                map_result = {"method": "map_matching", "H": None, "confidence": 0.0, "error": str(exc)}
         candidates.append(map_result)
 
         frame_result = None
@@ -76,8 +79,8 @@ class FrameLocalizer:
                     ransac_threshold=self.ransac_threshold,
                     min_good_matches=self.min_good_matches,
                 )
-            except RuntimeError:
-                frame_result = None
+            except Exception as exc:
+                frame_result = {"method": "frame_matching", "H": None, "confidence": 0.0, "error": str(exc)}
         candidates.append(frame_result)
 
         best = select_best_homography(candidates)

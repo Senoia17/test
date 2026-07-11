@@ -21,20 +21,28 @@ def run_map_pipeline(
 
     paths_config = config.get("paths", {})
     if input_path is None:
-        configured_input = paths_config.get("mapping_video") or paths_config.get("input") or paths_config.get("map_image")
+        configured_input = paths_config.get("mapping_video")
         input_path = Path(configured_input) if configured_input else None
     if input_path is None:
-        raise ValueError("Mapping mission requires --input or paths.mapping_video in config.yaml")
+        raise ValueError("Mapping mission requires --input or paths.mapping_video; static map_image fallback is not supported")
+    if not input_path.exists():
+        raise FileNotFoundError(f"Mapping video not found: {input_path}")
 
     if output_path is None:
         configured_output = paths_config.get("map_output_dir") or Path(paths_config.get("global_map", "data/map/global_map.jpg")).parent
         output_path = Path(configured_output)
+    output_path.mkdir(parents=True, exist_ok=True)
 
     calibration_path = paths_config.get("calibration")
+    if not calibration_path:
+        raise ValueError("Mapping mission requires paths.calibration in config.yaml")
+    if not Path(calibration_path).exists():
+        raise FileNotFoundError(f"Calibration file not found: {calibration_path}")
+
     result = build_global_map(
         input_path,
         output_dir=output_path,
-        calibration_path=calibration_path if calibration_path else None,
+        calibration_path=calibration_path,
     )
     print(f"Saved global map artifacts to {output_path}")
     return result
