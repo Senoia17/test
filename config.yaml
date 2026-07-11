@@ -32,6 +32,8 @@ missions:
     conf: 0.3
     imgsz: 640
     sample_interval: 10
+    crater_count: 3
+    uxo_count: 5
   mapping:
     adapter: aruco_homography
   facility:

@@ -12,6 +12,7 @@ from calibration.undistort import undistort_frame
 from detection.object_detector import ObjectDetector
 from localization.localizer import FrameLocalizer
 from mission.json_writer import write_json
+from mission.zone_regions import UNKNOWN_ZONE, load_zone_regions
 from obstacle.obstacle_analyzer import analyze_obstacles
 from utils.video import iter_video_frames
 
@@ -55,6 +56,18 @@ def _require_existing_file(path: str | Path | None, label: str) -> Path:
     if not file_path.exists():
         raise FileNotFoundError(f"{label} not found: {file_path}")
     return file_path
+
+
+def _rank_regions(votes: Mapping[str, int], limit: int) -> list[dict[str, object]]:
+    ranked = sorted(votes.items(), key=lambda item: (-item[1], item[0]))
+    return [{"zone": zone, "votes": count} for zone, count in ranked[: max(0, limit)]]
+
+
+def _record_region_votes(items: list[dict[str, object]], votes: dict[str, int]) -> None:
+    for item in items:
+        zone = item.get("zone")
+        if isinstance(zone, str) and zone and zone != UNKNOWN_ZONE:
+            votes[zone] = votes.get(zone, 0) + 1
 
 
 def _unlocalized_detection(detection: Mapping[str, Any]) -> dict[str, object]:
@@ -132,6 +145,12 @@ def run_obstacle_pipeline(
         homography_path = fallback_homography if fallback_homography.exists() else homography_path
     homography_path = _require_existing_file(homography_path, "homography artifact")
 
+    zone_lookup = None
+    configured_zones = paths_config.get("zones")
+    if configured_zones:
+        zones_path = _require_existing_file(configured_zones, "zones artifact")
+        zone_lookup = load_zone_regions(zones_path).lookup
+
     camera_model = CameraModel.load(calibration_path)
     marker_positions = _load_marker_positions(map_info_path)
     homography_artifact = _load_pickle(homography_path)
@@ -151,6 +170,8 @@ def run_obstacle_pipeline(
     crater_results: list[dict[str, object]] = []
     uxo_results: list[dict[str, object]] = []
     frame_summaries: list[dict[str, object]] = []
+    crater_region_votes: dict[str, int] = {}
+    uxo_region_votes: dict[str, int] = {}
 
     processed_frame_count = 0
     for frame_index, frame in iter_video_frames(video_path):
@@ -182,7 +203,9 @@ def run_obstacle_pipeline(
             frame_summaries.append(frame_summary)
             continue
 
-        analyzed = analyze_obstacles(detections, localization["H"])
+        analyzed = analyze_obstacles(detections, localization["H"], zone_lookup=zone_lookup)
+        _record_region_votes(analyzed["craters"], crater_region_votes)
+        _record_region_votes(analyzed["uxos"], uxo_region_votes)
         localization_method = localization.get("method")
         localization_confidence = localization.get("confidence")
 
@@ -210,6 +233,9 @@ def run_obstacle_pipeline(
         )
         frame_summaries.append(frame_summary)
 
+    crater_region_count = int(mission_config.get("crater_count", len(crater_region_votes)))
+    uxo_region_count = int(mission_config.get("uxo_count", len(uxo_region_votes)))
+
     payload = {
         "mission": "obstacle",
         "input": str(video_path),
@@ -221,6 +247,14 @@ def run_obstacle_pipeline(
             "calibration": str(calibration_path),
         },
         "frames": frame_summaries,
+        "region_votes": {
+            "craters": crater_region_votes,
+            "uxos": uxo_region_votes,
+        },
+        "selected_regions": {
+            "craters": _rank_regions(crater_region_votes, crater_region_count),
+            "uxos": _rank_regions(uxo_region_votes, uxo_region_count),
+        },
         "results": {
             "craters": crater_results,
             "uxos": uxo_results,
