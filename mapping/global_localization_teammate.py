@@ -544,8 +544,8 @@ def detect_aruco_markers(
         center = pts.mean(axis=0)
         markers.append({
             "id": int(marker_id),
-            "corners": pts,
-            "center": center,
+            "corners": pts.astype(float).tolist(),
+            "center": center.astype(float).tolist(),
         })
     return markers
 

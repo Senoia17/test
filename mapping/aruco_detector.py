@@ -26,7 +26,14 @@ def _create_detector(dictionary_name: str = ARUCO_DICT_NAME) -> Any:
 
 
 def detect_aruco_markers(image: Any, dictionary_name: str = ARUCO_DICT_NAME) -> list[dict[str, object]]:
-    """Detect ArUco markers and return IDs with four image-space corners."""
+    """Detect ArUco markers using the shared marker schema.
+
+    Each marker is returned as::
+
+        {"id": int, "corners": [[x, y], ...], "center": [x, y]}
+
+    ``corners`` and ``center`` are image-space pixel coordinates.
+    """
     import cv2
 
     detector = _create_detector(dictionary_name)
@@ -42,10 +49,16 @@ def detect_aruco_markers(image: Any, dictionary_name: str = ARUCO_DICT_NAME) -> 
     markers: list[dict[str, object]] = []
     for marker_corners, marker_id in zip(corners, ids.flatten()):
         pts = marker_corners[0]
+        corners_xy = [[float(x), float(y)] for x, y in pts]
+        center = [
+            sum(point[0] for point in corners_xy) / 4.0,
+            sum(point[1] for point in corners_xy) / 4.0,
+        ]
         markers.append(
             {
                 "id": int(marker_id),
-                "corners": [[float(x), float(y)] for x, y in pts],
+                "corners": corners_xy,
+                "center": center,
             }
         )
     return markers
@@ -55,6 +68,13 @@ def marker_centers(markers: list[dict[str, object]]) -> dict[int, list[float]]:
     """Return marker center points keyed by marker ID."""
     centers: dict[int, list[float]] = {}
     for marker in markers:
+        center = marker.get("center")
+        if center is not None:
+            centers[int(marker["id"])] = [float(center[0]), float(center[1])]  # type: ignore[index]
+            continue
+
+        # Compatibility fallback for marker dictionaries produced before the
+        # shared schema included an explicit center field.
         corners = marker["corners"]
         x = sum(float(point[0]) for point in corners) / 4.0  # type: ignore[index]
         y = sum(float(point[1]) for point in corners) / 4.0  # type: ignore[index]
