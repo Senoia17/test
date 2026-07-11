@@ -1,38 +1,47 @@
-import cv2
-import numpy as np
+"""Backward-compatible wrappers for the shared geometry package.
+
+The legacy ground mission imports this local module when executed from
+``ground_mission/src``. Keep those imports working while delegating reusable math
+to the Phase 4 geometry layer.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+from pathlib import Path
+from types import ModuleType
+from typing import Sequence
 
 
-def image_points_to_world(points_px, homography):
-    pts = np.array(points_px, dtype=np.float32).reshape(-1, 1, 2)
-    world = cv2.perspectiveTransform(pts, homography)
-    return world.reshape(-1, 2)
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_SHARED_GEOMETRY_DIR = _REPO_ROOT / "geometry"
 
 
-def bbox_center_xyxy(xyxy):
-    x1, y1, x2, y2 = xyxy
-    return [(x1 + x2) / 2.0, (y1 + y2) / 2.0]
+def _load_shared_module(module_name: str) -> ModuleType:
+    module_path = _SHARED_GEOMETRY_DIR / f"{module_name}.py"
+    spec = importlib.util.spec_from_file_location(f"_shared_geometry_{module_name}", module_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load shared geometry module: {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
-def bbox_corners_xyxy(xyxy):
-    x1, y1, x2, y2 = xyxy
-    return [
-        [x1, y1],
-        [x2, y1],
-        [x2, y2],
-        [x1, y2],
-    ]
+_transform = _load_shared_module("transform")
+_measurement = _load_shared_module("measurement")
 
 
-def polygon_size_mm(world_corners_cm):
-    pts = np.array(world_corners_cm, dtype=np.float32)
+def image_points_to_world(points_px: Sequence[Sequence[float]], homography: object):
+    return _transform.apply_homography(points_px, homography)
 
-    w1 = np.linalg.norm(pts[1] - pts[0])
-    w2 = np.linalg.norm(pts[2] - pts[3])
-    h1 = np.linalg.norm(pts[3] - pts[0])
-    h2 = np.linalg.norm(pts[2] - pts[1])
 
-    width_cm = (w1 + w2) / 2.0
-    height_cm = (h1 + h2) / 2.0
+def bbox_center_xyxy(xyxy: Sequence[float]) -> list[float]:
+    return _transform.bbox_center(xyxy)
 
-    return width_cm * 10.0, height_cm * 10.0
 
+def bbox_corners_xyxy(xyxy: Sequence[float]) -> list[list[float]]:
+    return _transform.bbox_corners(xyxy)
+
+
+def polygon_size_mm(world_corners_cm: Sequence[Sequence[float]]) -> tuple[float, float]:
+    return _measurement.polygon_size_mm(world_corners_cm)

@@ -15,9 +15,10 @@ from typing import Any
 from mission.facility_pipeline import run_facility_pipeline
 from mission.map_pipeline import run_map_pipeline
 from mission.obstacle_pipeline import run_obstacle_pipeline
+from mission.pipeline import run_ground_pipeline
 
 
-MISSION_CHOICES = ("facility", "mapping", "obstacle")
+MISSION_CHOICES = ("ground", "facility", "mapping", "obstacle")
 
 
 def _parse_scalar(value: str) -> Any:
@@ -66,11 +67,12 @@ def load_config(path: Path) -> dict[str, Any]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Drone AI mission router")
-    parser.add_argument("--mission", required=True, choices=MISSION_CHOICES)
+    parser.add_argument("--mission", choices=MISSION_CHOICES, default="ground")
     parser.add_argument("--input", type=Path, help="Mission input video/image/crop path")
     parser.add_argument("--output", type=Path, help="Mission output path or directory")
     parser.add_argument("--config", type=Path, default=Path("config.yaml"))
     parser.add_argument("--dry-run", action="store_true", help="Validate routing without invoking CV dependencies")
+    parser.add_argument("--debug", action="store_true", help="Save debug frames for the integrated ground pipeline")
     return parser.parse_args()
 
 
@@ -78,7 +80,9 @@ def main() -> None:
     args = parse_args()
     config = load_config(args.config)
 
-    if args.mission == "facility":
+    if args.mission == "ground":
+        run_ground_pipeline(args.input, args.output, config, debug=args.debug, dry_run=args.dry_run)
+    elif args.mission == "facility":
         run_facility_pipeline(args.input, args.output, config, dry_run=args.dry_run)
     elif args.mission == "mapping":
         run_map_pipeline(args.input, args.output, config, dry_run=args.dry_run)
