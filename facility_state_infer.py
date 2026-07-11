@@ -1,7 +1,4 @@
-import cv2
-import numpy as np
-import torch
-from ultralytics import YOLO
+from detection.classifier import YoloClassifier
 
 
 # =========================
@@ -39,6 +36,8 @@ def detect_fire_with_contour(
         "max_contour_ratio": float
     }
     """
+    import cv2
+    import numpy as np
 
     if bgr_crop is None or bgr_crop.size == 0:
         return {
@@ -131,12 +130,11 @@ class FacilityStateClassifier:
             damaged confidence가 이 값보다 낮으면 애매한 damaged로 처리.
         """
 
-        if device is None:
-            device = 0 if torch.cuda.is_available() else "cpu"
-
-        self.model = YOLO(damage_model_path)
-        self.imgsz = imgsz
-        self.device = device
+        self.classifier = YoloClassifier(
+            damage_model_path,
+            imgsz=imgsz,
+            device=device,
+        )
         self.damaged_threshold = damaged_threshold
 
     def classify_damage(self, bgr_crop):
@@ -151,33 +149,7 @@ class FacilityStateClassifier:
         }
         """
 
-        results = self.model.predict(
-            source=bgr_crop,
-            imgsz=self.imgsz,
-            device=self.device,
-            verbose=False,
-        )
-
-        r = results[0]
-        probs = r.probs
-
-        top1_idx = int(probs.top1)
-        top1_conf = float(probs.top1conf)
-
-        # r.names 예: {0: 'damaged', 1: 'normal'}
-        label = r.names[top1_idx]
-
-        raw_probs = {}
-        probs_np = probs.data.detach().cpu().numpy()
-
-        for idx, name in r.names.items():
-            raw_probs[name] = float(probs_np[int(idx)])
-
-        return {
-            "label": label,
-            "confidence": top1_conf,
-            "raw_probs": raw_probs,
-        }
+        return self.classifier.classify(bgr_crop)
 
     def analyze_crop(self, bgr_crop, fa_id=None):
         """
@@ -343,6 +315,8 @@ def analyze_single_crop(
     fa_id=None,
     save_debug=False,
 ):
+    import cv2
+
     crop = cv2.imread(image_path)
 
     if crop is None:
@@ -372,6 +346,59 @@ def analyze_single_crop(
         cv2.imwrite("debug_facility_state.jpg", vis)
 
     return result
+
+
+def analyze_facility_video(
+    video_path,
+    model_path,
+    camera_model=None,
+    sample_interval=30,
+    fa_id=None,
+):
+    """Analyze sampled frames from one facility video and aggregate results.
+
+    Policy: one video represents one facility. Fire in any sampled frame wins;
+    otherwise status is majority vote and confidence is the average confidence of
+    sampled frame results. Existing single-crop APIs remain unchanged.
+    """
+    from utils.video import iter_video_frames
+    from calibration.undistort import undistort_frame
+
+    analyzer = FacilityStateClassifier(model_path)
+    frame_results = []
+
+    for frame_index, frame in iter_video_frames(video_path, sample_interval=sample_interval):
+        frame = undistort_frame(frame, camera_model)
+        result = analyzer.analyze_crop(frame, fa_id=fa_id)
+        result["frame_index"] = frame_index
+        frame_results.append(result)
+
+    if not frame_results:
+        raise ValueError(f"No frames sampled from facility video: {video_path}")
+
+    fire_results = [result for result in frame_results if result.get("status") == "fire"]
+    if fire_results:
+        confidence = sum(float(result.get("confidence", 0.0)) for result in fire_results) / len(fire_results)
+        status = "fire"
+        method = "video_fire_any_frame"
+    else:
+        counts = {}
+        for result in frame_results:
+            status_key = result.get("status", "unknown")
+            counts[status_key] = counts.get(status_key, 0) + 1
+        status = max(counts, key=counts.get)
+        status_results = [result for result in frame_results if result.get("status") == status]
+        confidence = sum(float(result.get("confidence", 0.0)) for result in status_results) / len(status_results)
+        method = "video_majority_vote"
+
+    return {
+        "fa_id": fa_id,
+        "status": status,
+        "confidence": float(confidence),
+        "method": method,
+        "sampled_frames": len(frame_results),
+        "frame_results": frame_results,
+    }
 
 
 if __name__ == "__main__":

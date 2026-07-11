@@ -21,20 +21,36 @@ def run_facility_pipeline(
         print("[DRY-RUN] mission=facility adapter=facility_state_infer.py")
         return {"mission": "facility", "adapter": "facility_state_infer.py"}
 
+    paths_config = config.get("paths", {})
     if input_path is None:
-        raise ValueError("Facility mission currently requires --input pointing to an existing facility crop/image")
+        configured_input = paths_config.get("facility_video") or paths_config.get("input")
+        input_path = Path(configured_input) if configured_input else None
+    if input_path is None:
+        raise ValueError("Facility mission requires --input or paths.facility_video in config.yaml")
+    if not input_path.exists():
+        raise FileNotFoundError(f"Facility video not found: {input_path}")
+
+    calibration_path = paths_config.get("calibration")
+    if not calibration_path:
+        raise ValueError("Facility mission requires paths.calibration in config.yaml")
+    if not Path(calibration_path).exists():
+        raise FileNotFoundError(f"Calibration file not found: {calibration_path}")
 
     model_path = config.get("models", {}).get("facility_damage_weights")
     if not model_path:
         raise ValueError("Missing models.facility_damage_weights in config.yaml")
+    if not Path(model_path).exists():
+        raise FileNotFoundError(f"Facility model weights not found: {model_path}")
 
-    from facility_state_infer import analyze_single_crop
+    from calibration.camera_model import CameraModel
+    from facility_state_infer import analyze_facility_video
 
-    result = analyze_single_crop(
-        image_path=str(input_path),
+    result = analyze_facility_video(
+        video_path=str(input_path),
         model_path=model_path,
+        camera_model=CameraModel.load(calibration_path),
+        sample_interval=int(config.get("missions", {}).get("facility", {}).get("sample_interval", 30)),
         fa_id=None,
-        save_debug=False,
     )
 
     if output_path is not None:
