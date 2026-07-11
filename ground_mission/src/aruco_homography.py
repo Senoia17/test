@@ -1,57 +1,32 @@
+"""Backward-compatible ArUco homography CLI wrappers.
+
+Phase 5 keeps this legacy entry point available while delegating reusable ArUco
+and homography logic to the shared mapping package.
+"""
+
+from __future__ import annotations
+
 import argparse
 import pickle
-
-import cv2
-import numpy as np
-
-
-FIELD_CORNERS_CM = {
-    0: [0.0, 0.0],
-    1: [500.0, 0.0],
-    2: [500.0, 400.0],
-    3: [0.0, 400.0],
-}
+import sys
+from pathlib import Path
 
 
-def detect_aruco_centers(image):
-    dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
-    parameters = cv2.aruco.DetectorParameters()
-    detector = cv2.aruco.ArucoDetector(dictionary, parameters)
-    corners, ids, _ = detector.detectMarkers(image)
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
-    if ids is None:
-        return {}
-
-    centers = {}
-    for marker_corners, marker_id in zip(corners, ids.flatten()):
-        pts = marker_corners[0]
-        center = pts.mean(axis=0)
-        centers[int(marker_id)] = center.tolist()
-
-    return centers
+from mapping.aruco_detector import detect_aruco_centers  # noqa: E402
+from mapping.map_homography import FIELD_CORNERS_CM, compute_homography  # noqa: E402
 
 
-def compute_homography(centers):
-    required_ids = [0, 1, 2, 3]
-    missing = [marker_id for marker_id in required_ids if marker_id not in centers]
-    if missing:
-        raise ValueError(f"Missing ArUco marker IDs: {missing}")
-
-    image_points = np.array([centers[i] for i in required_ids], dtype=np.float32)
-    world_points = np.array([FIELD_CORNERS_CM[i] for i in required_ids], dtype=np.float32)
-
-    homography, mask = cv2.findHomography(image_points, world_points)
-    if homography is None:
-        raise ValueError("Failed to compute homography.")
-
-    return homography
-
-
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--image", required=True)
     parser.add_argument("--output", default="configs/homography.pkl")
     args = parser.parse_args()
+
+    import cv2
 
     image = cv2.imread(args.image)
     if image is None:
@@ -60,12 +35,13 @@ def main():
     centers = detect_aruco_centers(image)
     homography = compute_homography(centers)
 
-    with open(args.output, "wb") as f:
-        pickle.dump(homography, f)
+    output_path = Path(args.output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("wb") as file:
+        pickle.dump(homography, file)
 
-    print(f"Saved homography to {args.output}")
+    print(f"Saved homography to {output_path}")
 
 
 if __name__ == "__main__":
     main()
-

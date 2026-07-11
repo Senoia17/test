@@ -2,7 +2,9 @@
 # Existing implementation paths are preserved and called through mission adapters.
 paths:
   input: null
+  mapping_video: mapping_video.mp4
   output_dir: outputs
+  map_output_dir: data/map
   calibration: configs/calibration.json
   homography: ground_mission/configs/homography.pkl
   zones: ground_mission/configs/zones.yaml
