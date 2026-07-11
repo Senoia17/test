@@ -14,8 +14,8 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 from calibration.camera_model import CameraModel
+from mapping.aruco_config import get_aruco_config, get_aruco_marker_positions, resolve_corner_ids, resolve_dictionary_name
 from mapping.coordinate_system import default_coordinate_system
-from mapping.map_homography import FIELD_CORNERS_CM
 
 
 @dataclass
@@ -37,8 +37,8 @@ class MapBuildConfig:
     crop_black_border: bool = True
     save_keyframe_debug: bool = False
     use_aruco_rectification: bool = True
-    aruco_dictionary: str = "DICT_5X5_50"
-    aruco_corner_ids: tuple[int, int, int, int] | None = None
+    aruco_dictionary: str | None = None
+    aruco_corner_ids: tuple[int, ...] | None = None
     aruco_min_markers: int = 4
     rectified_map_width: int = 1500
     rectified_map_height: int = 1200
@@ -68,13 +68,16 @@ def _camera_model_from_optional_inputs(
 def _config_from_legacy_args(
     *,
     sample_interval: int,
-    dictionary_name: str,
+    dictionary_name: str | None,
     marker_positions: Mapping[int, Sequence[float]] | None,
 ) -> MapBuildConfig:
-    """Translate the previous ArUco-frame API knobs to the teammate mapper config."""
-    cfg = MapBuildConfig(frame_stride=max(1, int(sample_interval)))
-    if dictionary_name:
-        cfg.aruco_dictionary = dictionary_name
+    """Translate previous ArUco-frame API knobs to teammate mapper config."""
+    aruco_config = get_aruco_config()
+    cfg = MapBuildConfig(
+        frame_stride=max(1, int(sample_interval)),
+        aruco_dictionary=dictionary_name or aruco_config.dictionary,
+        aruco_corner_ids=aruco_config.corner_ids,
+    )
     if marker_positions:
         # Previous callers may pass marker positions to identify the four corner
         # IDs. The teammate mapper expects IDs in final TL, TR, BR, BL order; sort
@@ -92,6 +95,7 @@ def _rectified_pixel_to_world_homography(
     image_width: int,
     image_height: int,
     marker_positions: Mapping[int, Sequence[float]],
+    corner_ids: Sequence[int],
 ):
     """Return a global-map-pixel to world-coordinate homography.
 
@@ -112,15 +116,11 @@ def _rectified_pixel_to_world_homography(
         ],
         dtype=np.float32,
     )
-    dst = np.array(
-        [
-            marker_positions[0],
-            marker_positions[1],
-            marker_positions[2],
-            marker_positions[3],
-        ],
-        dtype=np.float32,
-    )
+    missing = [marker_id for marker_id in corner_ids if marker_id not in marker_positions]
+    if missing:
+        raise KeyError(f"Missing marker positions for configured corner IDs: {missing}")
+
+    dst = np.array([marker_positions[marker_id] for marker_id in corner_ids], dtype=np.float32)
     homography, _ = cv2.findHomography(src, dst)
     if homography is None:
         raise ValueError("Failed to compute rectified map homography.")
@@ -155,7 +155,7 @@ def build_global_map(
     calibration_path: str | Path | None = None,
     marker_positions: Mapping[int, Sequence[float]] | None = None,
     sample_interval: int = 10,
-    dictionary_name: str = "DICT_5X5_50",
+    dictionary_name: str | None = None,
     map_config: MapBuildConfig | None = None,
 ) -> dict[str, object]:
     """Build a rectified bird's-eye global map from a top-view mapping video.
@@ -175,6 +175,10 @@ def build_global_map(
         dictionary_name=dictionary_name,
         marker_positions=marker_positions,
     )
+    if cfg.aruco_dictionary is None:
+        cfg.aruco_dictionary = resolve_dictionary_name(None)
+    if cfg.aruco_corner_ids is None:
+        cfg.aruco_corner_ids = resolve_corner_ids(None)
 
     global_map_path = output_path / "global_map.jpg"
     debug_dir = output_path / "map_debug"
@@ -195,7 +199,7 @@ def build_global_map(
     aruco_points_path = output_path / "aruco_points.json"
     homography_path = output_path / "homography.pkl"
 
-    positions = marker_positions or FIELD_CORNERS_CM
+    positions = marker_positions or get_aruco_marker_positions()
     height, width = global_map.shape[:2]
     default_coordinate_system(positions).save(map_info_path)
 
@@ -204,7 +208,7 @@ def build_global_map(
         encoding="utf-8",
     )
 
-    homography = _rectified_pixel_to_world_homography(width, height, positions)
+    homography = _rectified_pixel_to_world_homography(width, height, positions, cfg.aruco_corner_ids)
     with homography_path.open("wb") as file:
         pickle.dump(homography, file)
 

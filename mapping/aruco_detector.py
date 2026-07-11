@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from mapping.aruco_config import resolve_dictionary_name
 
-ARUCO_DICT_NAME = "DICT_4X4_50"
 
-
-def _create_detector(dictionary_name: str = ARUCO_DICT_NAME) -> Any:
+def _create_detector(dictionary_name: str | None = None) -> Any:
     import cv2
 
     aruco = cv2.aruco
@@ -25,7 +24,7 @@ def _create_detector(dictionary_name: str = ARUCO_DICT_NAME) -> Any:
     return dictionary, parameters
 
 
-def detect_aruco_markers(image: Any, dictionary_name: str = ARUCO_DICT_NAME) -> list[dict[str, object]]:
+def detect_aruco_markers(image: Any, dictionary_name: str | None = None) -> list[dict[str, object]]:
     """Detect ArUco markers using the shared marker schema.
 
     Each marker is returned as::
@@ -36,6 +35,7 @@ def detect_aruco_markers(image: Any, dictionary_name: str = ARUCO_DICT_NAME) -> 
     """
     import cv2
 
+    dictionary_name = resolve_dictionary_name(dictionary_name)
     detector = _create_detector(dictionary_name)
     if hasattr(detector, "detectMarkers"):
         corners, ids, _ = detector.detectMarkers(image)
@@ -82,6 +82,6 @@ def marker_centers(markers: list[dict[str, object]]) -> dict[int, list[float]]:
     return centers
 
 
-def detect_aruco_centers(image: Any, dictionary_name: str = ARUCO_DICT_NAME) -> dict[int, list[float]]:
+def detect_aruco_centers(image: Any, dictionary_name: str | None = None) -> dict[int, list[float]]:
     """Backward-compatible helper returning only marker centers."""
     return marker_centers(detect_aruco_markers(image, dictionary_name=dictionary_name))
