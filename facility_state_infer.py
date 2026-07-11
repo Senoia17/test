@@ -1,7 +1,6 @@
 import cv2
 import numpy as np
-import torch
-from ultralytics import YOLO
+from detection.classifier import YoloClassifier
 
 
 # =========================
@@ -131,12 +130,11 @@ class FacilityStateClassifier:
             damaged confidence가 이 값보다 낮으면 애매한 damaged로 처리.
         """
 
-        if device is None:
-            device = 0 if torch.cuda.is_available() else "cpu"
-
-        self.model = YOLO(damage_model_path)
-        self.imgsz = imgsz
-        self.device = device
+        self.classifier = YoloClassifier(
+            damage_model_path,
+            imgsz=imgsz,
+            device=device,
+        )
         self.damaged_threshold = damaged_threshold
 
     def classify_damage(self, bgr_crop):
@@ -151,33 +149,7 @@ class FacilityStateClassifier:
         }
         """
 
-        results = self.model.predict(
-            source=bgr_crop,
-            imgsz=self.imgsz,
-            device=self.device,
-            verbose=False,
-        )
-
-        r = results[0]
-        probs = r.probs
-
-        top1_idx = int(probs.top1)
-        top1_conf = float(probs.top1conf)
-
-        # r.names 예: {0: 'damaged', 1: 'normal'}
-        label = r.names[top1_idx]
-
-        raw_probs = {}
-        probs_np = probs.data.detach().cpu().numpy()
-
-        for idx, name in r.names.items():
-            raw_probs[name] = float(probs_np[int(idx)])
-
-        return {
-            "label": label,
-            "confidence": top1_conf,
-            "raw_probs": raw_probs,
-        }
+        return self.classifier.classify(bgr_crop)
 
     def analyze_crop(self, bgr_crop, fa_id=None):
         """
