@@ -13,6 +13,7 @@ def run_facility_pipeline(
     output_path: Path | None,
     config: dict[str, Any],
     dry_run: bool = False,
+    fa_id: str | None = None,
 ) -> dict[str, Any] | None:
     """Run the existing facility state analyzer for a provided crop/image."""
     if dry_run:
@@ -48,7 +49,7 @@ def run_facility_pipeline(
         model_path=model_path,
         camera_model=CameraModel.load(calibration_path),
         sample_interval=int(config.get("missions", {}).get("facility", {}).get("sample_interval", 30)),
-        fa_id=None,
+        fa_id=fa_id,
     )
 
     if output_path is not None:
