@@ -3,16 +3,33 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
 
 
 BASE_DIR: Path = Path(__file__).resolve().parent
+PROJECT_ROOT: Path = BASE_DIR.parents[1]
 
 DATASET_DIR: Path = BASE_DIR / "dataset"
 DATA_YAML: Path = DATASET_DIR / "data.yaml"
 
-WEIGHTS_DIR: Path = BASE_DIR / "weights"
+WEIGHTS_DIR: Path = PROJECT_ROOT / "models" / "obstacle"
 PRETRAINED_MODEL_PATH: Path = WEIGHTS_DIR / "yolo11s.pt"
-MODEL_PATH: Path = WEIGHTS_DIR / "best.pt"
+
+
+def _configured_model_path() -> Path:
+    if str(PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(PROJECT_ROOT))
+
+    from main import load_config
+    from mission.model_weights import resolve_model_weight_path
+
+    model_path = resolve_model_weight_path(load_config(PROJECT_ROOT / "config.yaml"), "obstacle")
+    if model_path is None:
+        raise ValueError("Missing models.obstacle.directory/version in config.yaml")
+    return model_path
+
+
+MODEL_PATH: Path = _configured_model_path()
 
 INPUT_DIR: Path = BASE_DIR / "input"
 INPUT_VIDEO_PATH: Path = INPUT_DIR / "mission_video.mp4"

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 
-from mission.facility_pipeline import run_facility_pipeline
+from facility.run import run_facility_pipeline
 from mission.map_pipeline import run_map_pipeline
 from mission.obstacle_pipeline import run_obstacle_pipeline
 from mission.pipeline import run_ground_pipeline

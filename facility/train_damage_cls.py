@@ -1,4 +1,5 @@
-import os
+"""Train the facility damage classification model."""
+
 from pathlib import Path
 
 import torch
@@ -9,9 +10,12 @@ from ultralytics import YOLO
 # 1. 설정
 # =========================
 
-DATA_DIR = "dataset/facility_damage"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+FACILITY_DIR = Path(__file__).resolve().parent
 
-PROJECT_DIR = "runs/facility"
+DATA_DIR = FACILITY_DIR / "dataset" / "facility_damage"
+
+PROJECT_DIR = REPO_ROOT / "runs" / "facility"
 RUN_NAME = "facility_damage_cls"
 
 IMG_SIZE = 320
@@ -44,10 +48,10 @@ def find_yolo_cls_weight():
     ]
 
     search_dirs = [
-        ".",
-        "./weights",
-        "/weights",
-        "./models",
+        REPO_ROOT,
+        REPO_ROOT / "models" / "facility",
+        Path("/weights"),
+        FACILITY_DIR / "models",
     ]
 
     for d in search_dirs:
