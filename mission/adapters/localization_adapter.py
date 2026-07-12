@@ -47,10 +47,22 @@ class LocalizationAdapter:
         result = self.localizer.localize(frame)
         if result is None:
             return LocalizationResult(None, None, "none", False, "localization_failed")
+
+        def _point(value: Any) -> list[float] | None:
+            if value is None:
+                return None
+            return [float(value[0]), float(value[1])]
+
+        homography = result.get("H_frame_to_global")
+        if homography is None:
+            homography = result.get("H")
         return LocalizationResult(
-            homography_matrix=result.get("H"),
+            homography_matrix=homography,
             confidence=float(result["confidence"]) if result.get("confidence") is not None else None,
             method=str(result.get("method", "unknown")),
-            localized=result.get("H") is not None,
+            localized=homography is not None,
             error=str(result["error"]) if result.get("error") else None,
+            center_px=_point(result.get("center_px")),
+            center_m=_point(result.get("center_m")),
+            zone=str(result["zone"]) if result.get("zone") else None,
         )
