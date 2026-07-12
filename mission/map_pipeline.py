@@ -33,16 +33,9 @@ def run_map_pipeline(
         output_path = Path(configured_output)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    calibration_path = paths_config.get("calibration")
-    if not calibration_path:
-        raise ValueError("Mapping mission requires paths.calibration in config.yaml")
-    if not Path(calibration_path).exists():
-        raise FileNotFoundError(f"Calibration file not found: {calibration_path}")
-
     result = build_global_map(
         input_path,
         output_dir=output_path,
-        calibration_path=calibration_path,
     )
     print(f"Saved global map artifacts to {output_path}")
     return result

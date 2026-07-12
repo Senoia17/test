@@ -4,13 +4,10 @@ from __future__ import annotations
 
 import json
 import pickle
-import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Mapping, Sequence
 
-from calibration.camera_model import CameraModel
-from calibration.undistort import undistort_frame
 from mapping.aruco_config import get_aruco_config, get_aruco_marker_positions, resolve_corner_ids, resolve_dictionary_name
 from mapping.coordinate_system import default_coordinate_system
 
@@ -46,20 +43,6 @@ class MapBuildConfig:
     aruco_debug: bool = True
 
 
-def _camera_model_from_optional_inputs(
-    camera_model: CameraModel | None,
-    calibration_path: str | Path | None,
-) -> CameraModel | None:
-    if camera_model is not None:
-        return camera_model
-    if calibration_path is None:
-        return None
-    calibration_file = Path(calibration_path)
-    if not calibration_file.exists():
-        raise FileNotFoundError(f"Calibration file not found: {calibration_file}")
-    return CameraModel.load(calibration_file)
-
-
 def _config_from_legacy_args(
     *,
     sample_interval: int,
@@ -80,35 +63,6 @@ def _config_from_legacy_args(
         if len(ordered) >= 4:
             cfg.aruco_corner_ids = tuple(int(marker_id) for marker_id, _ in ordered[:4])
     return cfg
-
-
-def _write_undistorted_video(source_video: Path, output_video: Path, camera_model: CameraModel) -> Path:
-    """Create the calibrated video consumed unchanged by FastTopViewMosaicBuilder."""
-    import cv2
-
-    cap = cv2.VideoCapture(str(source_video))
-    if not cap.isOpened():
-        raise FileNotFoundError(f"Cannot open mapping video: {source_video}")
-
-    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    writer = cv2.VideoWriter(str(output_video), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
-    if not writer.isOpened():
-        cap.release()
-        raise OSError(f"Cannot create calibrated mapping video: {output_video}")
-
-    try:
-        while True:
-            ok, frame = cap.read()
-            if not ok:
-                break
-            writer.write(undistort_frame(frame, camera_model))
-    finally:
-        writer.release()
-        cap.release()
-
-    return output_video
 
 
 def _rectified_pixel_to_world_homography(
@@ -160,8 +114,6 @@ def build_global_map(
     video_path: str | Path,
     *,
     output_dir: str | Path = "data/map",
-    camera_model: CameraModel | None = None,
-    calibration_path: str | Path | None = None,
     marker_positions: Mapping[int, Sequence[float]] | None = None,
     sample_interval: int = 10,
     dictionary_name: str | None = None,
@@ -169,10 +121,9 @@ def build_global_map(
 ) -> dict[str, object]:
     """Build current map artifacts by adapting inputs to teammate builder.
 
-    Call order is: input video -> existing calibration undistort -> teammate
-    ``FastTopViewMosaicBuilder.build`` -> project artifact writers.
+    Call order is: input video -> teammate ``FastTopViewMosaicBuilder.build``
+    -> project artifact writers.
     """
-    camera_model = _camera_model_from_optional_inputs(camera_model, calibration_path)
     source_video = Path(video_path)
     if not source_video.exists():
         raise FileNotFoundError(f"Mapping video not found: {source_video}")
@@ -196,22 +147,11 @@ def build_global_map(
     debug_dir = output_path / "map_debug"
     builder = FastTopViewMosaicBuilder(TeammateMapBuildConfig(**asdict(cfg)))
 
-    temp_dir: tempfile.TemporaryDirectory[str] | None = None
-    builder_input = source_video
-    try:
-        if camera_model is not None:
-            temp_dir = tempfile.TemporaryDirectory(prefix="calibrated_mapping_")
-            calibrated_video = Path(temp_dir.name) / f"{source_video.stem}_undistorted.mp4"
-            builder_input = _write_undistorted_video(source_video, calibrated_video, camera_model)
-
-        global_map, report = builder.build(
-            video_path=builder_input,
-            output_path=global_map_path,
-            debug_dir=debug_dir,
-        )
-    finally:
-        if temp_dir is not None:
-            temp_dir.cleanup()
+    global_map, report = builder.build(
+        video_path=source_video,
+        output_path=global_map_path,
+        debug_dir=debug_dir,
+    )
 
     map_info_path = output_path / "map_info.json"
     aruco_points_path = output_path / "aruco_points.json"
@@ -233,7 +173,7 @@ def build_global_map(
     metadata = {
         "source": "teammate_fast_top_view_mosaic",
         "teammate_builder": "mapping.global_localization_teammate.FastTopViewMosaicBuilder.build",
-        "calibrated_input": camera_model is not None,
+        "calibrated_input": False,
         "sampled_frames": report.get("sampled_frames") if isinstance(report, dict) else None,
         "accepted_keyframes": report.get("accepted_keyframes") if isinstance(report, dict) else None,
         "accepted_source_indices": report.get("accepted_source_indices") if isinstance(report, dict) else None,
