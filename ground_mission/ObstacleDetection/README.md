@@ -19,7 +19,7 @@ python main.py
 ```
 
 Place the mission video at `input/mission_video.mp4` and trained weights at
-`weights/best.pt`. The pipeline writes:
+`../../models/obstacle/best.pt`. The pipeline writes:
 
 - `output/crater_detect.json`
 - `output/uxo_detect.json`

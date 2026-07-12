@@ -49,7 +49,7 @@ def find_yolo_cls_weight():
 
     search_dirs = [
         REPO_ROOT,
-        FACILITY_DIR / "weights",
+        REPO_ROOT / "models" / "facility",
         Path("/weights"),
         FACILITY_DIR / "models",
     ]

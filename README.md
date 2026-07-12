@@ -82,7 +82,7 @@ Optional config-driven inputs include:
 - `paths.calibration`
 - `paths.global_map`
 - `paths.map_info`
-- `models.obstacle_weights`
+- `models.obstacle.directory` + `models.obstacle.version`
 
 If optional components are missing, the central pipeline records adapter errors and continues where safe. Mission-specific adapters may enforce stricter runtime policies.
 

@@ -1,8 +1,29 @@
+import sys
+from pathlib import Path
+
 from ultralytics import YOLO
 
 
+def _resolve_pretrained_weight() -> str | Path:
+    project_root = Path(__file__).resolve().parents[2]
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+
+    from main import load_config
+
+    config = load_config(project_root / "config.yaml")
+    obstacle_model = config.get("models", {}).get("obstacle", {})
+    directory = obstacle_model.get("directory") if isinstance(obstacle_model, dict) else None
+    pretrained = obstacle_model.get("pretrained") if isinstance(obstacle_model, dict) else None
+    if not pretrained:
+        raise ValueError("Missing models.obstacle.pretrained in config.yaml")
+
+    candidate = Path(directory) / pretrained if directory else Path(pretrained)
+    return candidate if candidate.exists() else str(pretrained)
+
+
 def main():
-    model = YOLO("yolo11s.pt")
+    model = YOLO(_resolve_pretrained_weight())
 
     model.train(
         data="dataset/data.yaml",
@@ -30,4 +51,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

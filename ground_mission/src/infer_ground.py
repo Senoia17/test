@@ -1,5 +1,6 @@
 import argparse
 import pickle
+import sys
 from pathlib import Path
 
 from ultralytics import YOLO
@@ -23,6 +24,17 @@ CLASS_NAMES = {
 }
 
 UXO_CLASSES = {"missile", "cluster", "dumb"}
+
+
+def _resolve_default_weights_path():
+    project_root = Path(__file__).resolve().parents[2]
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+
+    from main import load_config
+    from mission.model_weights import resolve_model_weight_path
+
+    return resolve_model_weight_path(load_config(project_root / "config.yaml"), "obstacle")
 
 
 def load_homography(path):
@@ -103,7 +115,7 @@ def infer(
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--weights", default="weights/ground_best.pt")
+    parser.add_argument("--weights")
     parser.add_argument("--source", required=True)
     parser.add_argument("--homography", default="configs/homography.pkl")
     parser.add_argument("--zones", default="configs/zones.yaml")
@@ -112,8 +124,12 @@ def main():
     parser.add_argument("--imgsz", type=int, default=1280)
     args = parser.parse_args()
 
+    weights_path = Path(args.weights) if args.weights else _resolve_default_weights_path()
+    if weights_path is None:
+        raise ValueError("Missing models.obstacle.directory/version in config.yaml")
+
     infer(
-        weights_path=args.weights,
+        weights_path=weights_path,
         source_path=args.source,
         homography_path=args.homography,
         zones_path=args.zones,

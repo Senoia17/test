@@ -12,6 +12,7 @@ from calibration.undistort import undistort_frame
 from detection.object_detector import ObjectDetector
 from localization.localizer import FrameLocalizer
 from mission.json_writer import write_json
+from mission.model_weights import resolve_model_weight_path
 from mission.zone_regions import UNKNOWN_ZONE, load_zone_regions
 from obstacle.obstacle_analyzer import analyze_obstacles
 from utils.video import iter_video_frames
@@ -117,7 +118,6 @@ def run_obstacle_pipeline(
         return {"mission": "obstacle", "adapter": "mission.obstacle_pipeline"}
 
     paths_config = config.get("paths", {})
-    models_config = config.get("models", {})
     mission_config = config.get("missions", {}).get("obstacle", {})
 
     video_path = input_path
@@ -126,7 +126,7 @@ def run_obstacle_pipeline(
         video_path = Path(configured_input) if configured_input else None
     video_path = _require_existing_file(video_path, "obstacle video")
 
-    weights_path = models_config.get("obstacle_weights") or models_config.get("ground_weights")
+    weights_path = resolve_model_weight_path(config, "obstacle")
     weights_path = _require_existing_file(weights_path, "obstacle YOLO weights")
 
     calibration_path = _require_existing_file(paths_config.get("calibration"), "calibration file")
