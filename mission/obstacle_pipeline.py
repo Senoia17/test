@@ -119,20 +119,27 @@ def _record_voting_items(
         bucket["confidences"].append(item.get("confidence"))  # type: ignore[union-attr]
 
 
-def _voting_output_path(mission_output_path: Path) -> Path:
-    return mission_output_path.with_name("obstacle_vote.json")
+ROUTE_CHOICES = ("TWA", "RW", "TWB")
+
+
+def _normalize_route(route: str | None) -> str:
+    if route not in ROUTE_CHOICES:
+        raise ValueError("Obstacle mission requires --route with one of: TWA, RW, TWB")
+    return route
+
+
+def _voting_output_path(mission_output_path: Path, route: str) -> Path:
+    return mission_output_path.with_name(f"{route}_vote.json")
 
 
 def _route_state_snapshot(localizer: FrameLocalizer) -> dict[str, object] | None:
     route_state = getattr(localizer, "route_state", None)
     if route_state is None:
         return None
-    candidates = route_state.candidates() if hasattr(route_state, "candidates") else []
     return {
         "idx": getattr(route_state, "idx", None),
         "locked": getattr(route_state, "locked", None),
         "current_zone": route_state.route[getattr(route_state, "idx", 0)] if getattr(route_state, "route", None) else None,
-        "candidates": candidates,
     }
 
 
@@ -149,6 +156,7 @@ def _log_localization_result(
         "[Localization] "
         f"frame={frame_index} "
         f"success={success} "
+        f"method={localization.get('method') if localization else None} "
         f"region={localization.get('zone') if localization else None} "
         f"route_state={route_state} "
         f"inliers={localization.get('inliers') if localization else None} "
@@ -185,11 +193,14 @@ def run_obstacle_pipeline(
     output_path: Path | None,
     config: dict[str, Any],
     dry_run: bool = False,
+    route: str | None = None,
 ) -> dict[str, Any] | None:
     """Run obstacle detection, localization, analysis, and JSON output."""
     if dry_run:
         print("[DRY-RUN] mission=obstacle adapter=mission.obstacle_pipeline")
-        return {"mission": "obstacle", "adapter": "mission.obstacle_pipeline"}
+        return {"mission": "obstacle", "adapter": "mission.obstacle_pipeline", "route": route}
+
+    route = _normalize_route(route)
 
     paths_config = config.get("paths", {})
     mission_config = config.get("missions", {}).get("obstacle", {})
@@ -362,5 +373,5 @@ def run_obstacle_pipeline(
         "mission": "obstacle",
         "zones": voting_zones,
     }
-    write_json(voting_payload, _voting_output_path(Path(output_path)))
+    write_json(voting_payload, _voting_output_path(Path(output_path), route))
     return payload
