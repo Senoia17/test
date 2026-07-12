@@ -101,15 +101,15 @@ def _zone_vote_bucket(vote_zones: dict[str, dict[str, dict[str, object]]], zone:
 def _record_voting_items(
     analyzed: Mapping[str, list[dict[str, object]]],
     *,
-    zone: object,
     frame_index: int,
     vote_zones: dict[str, dict[str, dict[str, object]]],
 ) -> None:
-    if not isinstance(zone, str) or not zone or zone == UNKNOWN_ZONE:
-        return
-
-    zone_votes = _zone_vote_bucket(vote_zones, zone)
     for item in [*analyzed.get("craters", []), *analyzed.get("uxos", [])]:
+        zone = item.get("zone")
+        if not isinstance(zone, str) or not zone or zone == UNKNOWN_ZONE:
+            continue
+
+        zone_votes = _zone_vote_bucket(vote_zones, zone)
         class_name = str(item.get("type"))
         if class_name not in zone_votes:
             continue
@@ -303,7 +303,6 @@ def run_obstacle_pipeline(
         analyzed = analyze_obstacles(detections, H_frame_to_global, zone_lookup=zone_lookup)
         _record_voting_items(
             analyzed,
-            zone=localization.get("zone"),
             frame_index=frame_index,
             vote_zones=voting_zones,
         )
