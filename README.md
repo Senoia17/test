@@ -41,6 +41,7 @@ python main.py --mission obstacle --input data/obstacle.mp4 --output output/obst
 | `mapping/` | Video-based global map generation, ArUco detection, map homography, and map metadata artifacts. |
 | `localization/` | Frame-to-map localization using ArUco, map matching, temporal frame matching, and homography selection. |
 | `obstacle/` | Crater measurement/classification and UXO analysis from normalized detections and localization. |
+| `facility/` | Facility mission inference, training entry point, and pipeline adapter. |
 | `mission/adapters/` | Lightweight adapters that hide implementation details and expose stable pipeline contracts. |
 | `mission/pipeline.py` | Central Ground Mission orchestration. |
 | `mission/json_writer.py` | Flexible JSON output writer. |
@@ -126,7 +127,7 @@ Legacy files are preserved, including:
 - `ground_mission/src/geometry.py`
 - `ground_mission/src/aruco_homography.py`
 - `ground_mission/ObstacleDetection/`
-- `facility_state_infer.py`
+- `facility/state_infer.py`
 
 Compatibility wrappers delegate reusable logic to the newer shared modules where safe.
 

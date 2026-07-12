@@ -1,3 +1,5 @@
+"""Facility state inference and video aggregation utilities."""
+
 from detection.classifier import YoloClassifier
 
 

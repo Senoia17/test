@@ -37,4 +37,4 @@ missions:
   mapping:
     adapter: aruco_homography
   facility:
-    adapter: facility_state_infer
+    adapter: facility.run

@@ -1,8 +1,4 @@
-"""Facility inspection mission adapter.
-
-Phase 1 exposes a pipeline-shaped entry point around the existing facility crop
-analysis script. Full video/frame orchestration is intentionally deferred.
-"""
+"""Facility mission pipeline entry point."""
 
 from __future__ import annotations
 
@@ -18,8 +14,8 @@ def run_facility_pipeline(
 ) -> dict[str, Any] | None:
     """Run the existing facility state analyzer for a provided crop/image."""
     if dry_run:
-        print("[DRY-RUN] mission=facility adapter=facility_state_infer.py")
-        return {"mission": "facility", "adapter": "facility_state_infer.py"}
+        print("[DRY-RUN] mission=facility adapter=facility.run")
+        return {"mission": "facility", "adapter": "facility.run"}
 
     paths_config = config.get("paths", {})
     if input_path is None:
@@ -43,7 +39,7 @@ def run_facility_pipeline(
         raise FileNotFoundError(f"Facility model weights not found: {model_path}")
 
     from calibration.camera_model import CameraModel
-    from facility_state_infer import analyze_facility_video
+    from facility.state_infer import analyze_facility_video
 
     result = analyze_facility_video(
         video_path=str(input_path),
