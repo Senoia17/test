@@ -85,6 +85,80 @@ def _unlocalized_detection(detection: Mapping[str, Any]) -> dict[str, object]:
     return result
 
 
+VOTE_CLASSES = ("crater", "missile", "cluster", "dumb")
+
+
+def _empty_vote_bucket() -> dict[str, object]:
+    return {"count": 0, "frames": [], "confidences": []}
+
+
+def _zone_vote_bucket(vote_zones: dict[str, dict[str, dict[str, object]]], zone: str) -> dict[str, dict[str, object]]:
+    if zone not in vote_zones:
+        vote_zones[zone] = {class_name: _empty_vote_bucket() for class_name in VOTE_CLASSES}
+    return vote_zones[zone]
+
+
+def _record_voting_items(
+    analyzed: Mapping[str, list[dict[str, object]]],
+    *,
+    zone: object,
+    frame_index: int,
+    vote_zones: dict[str, dict[str, dict[str, object]]],
+) -> None:
+    if not isinstance(zone, str) or not zone or zone == UNKNOWN_ZONE:
+        return
+
+    zone_votes = _zone_vote_bucket(vote_zones, zone)
+    for item in [*analyzed.get("craters", []), *analyzed.get("uxos", [])]:
+        class_name = str(item.get("type"))
+        if class_name not in zone_votes:
+            continue
+        bucket = zone_votes[class_name]
+        bucket["count"] = int(bucket["count"]) + 1
+        bucket["frames"].append(frame_index)  # type: ignore[union-attr]
+        bucket["confidences"].append(item.get("confidence"))  # type: ignore[union-attr]
+
+
+def _voting_output_path(mission_output_path: Path) -> Path:
+    return mission_output_path.with_name("obstacle_vote.json")
+
+
+def _route_state_snapshot(localizer: FrameLocalizer) -> dict[str, object] | None:
+    route_state = getattr(localizer, "route_state", None)
+    if route_state is None:
+        return None
+    candidates = route_state.candidates() if hasattr(route_state, "candidates") else []
+    return {
+        "idx": getattr(route_state, "idx", None),
+        "locked": getattr(route_state, "locked", None),
+        "current_zone": route_state.route[getattr(route_state, "idx", 0)] if getattr(route_state, "route", None) else None,
+        "candidates": candidates,
+    }
+
+
+def _log_localization_result(
+    *,
+    frame_index: int,
+    localization: Mapping[str, Any] | None,
+    has_homography: bool,
+    localizer: FrameLocalizer,
+) -> None:
+    route_state = _route_state_snapshot(localizer)
+    success = localization is not None and has_homography
+    print(
+        "[Localization] "
+        f"frame={frame_index} "
+        f"success={success} "
+        f"region={localization.get('zone') if localization else None} "
+        f"route_state={route_state} "
+        f"inliers={localization.get('inliers') if localization else None} "
+        f"inlier_ratio={localization.get('inlier_ratio') if localization else None} "
+        f"reproj_error={localization.get('reproj_error') if localization else None} "
+        f"confidence={localization.get('confidence') if localization else None} "
+        f"has_H_frame_to_global={has_homography}"
+    )
+
+
 def run_legacy_obstacle_pipeline(input_path: Path | None = None) -> None:
     """Run the preserved legacy ObstacleDetection pipeline on demand."""
     import importlib.util
@@ -172,6 +246,7 @@ def run_obstacle_pipeline(
     frame_summaries: list[dict[str, object]] = []
     crater_region_votes: dict[str, int] = {}
     uxo_region_votes: dict[str, int] = {}
+    voting_zones: dict[str, dict[str, dict[str, object]]] = {}
 
     processed_frame_count = 0
     for frame_index, frame in iter_video_frames(video_path):
@@ -182,13 +257,19 @@ def run_obstacle_pipeline(
             print(f"[Obstacle] Processing frame {frame_index}")
 
         undistorted = undistort_frame(frame, camera_model)
-        detections = detector.detect(undistorted)
         localization = localizer.localize(undistorted)
         H_frame_to_global = None
         if localization is not None:
             H_frame_to_global = localization.get("H_frame_to_global")
             if H_frame_to_global is None:
                 H_frame_to_global = localization.get("H")
+        _log_localization_result(
+            frame_index=frame_index,
+            localization=localization,
+            has_homography=H_frame_to_global is not None,
+            localizer=localizer,
+        )
+        detections = detector.detect(undistorted)
 
         frame_summary: dict[str, object] = {
             "frame_index": frame_index,
@@ -209,6 +290,12 @@ def run_obstacle_pipeline(
             continue
 
         analyzed = analyze_obstacles(detections, H_frame_to_global, zone_lookup=zone_lookup)
+        _record_voting_items(
+            analyzed,
+            zone=localization.get("zone"),
+            frame_index=frame_index,
+            vote_zones=voting_zones,
+        )
         _record_region_votes(analyzed["craters"], crater_region_votes)
         _record_region_votes(analyzed["uxos"], uxo_region_votes)
         localization_method = localization.get("method")
@@ -269,4 +356,11 @@ def run_obstacle_pipeline(
         },
     }
     write_json(payload, output_path)
+
+    voting_payload = {
+        "video": str(video_path),
+        "mission": "obstacle",
+        "zones": voting_zones,
+    }
+    write_json(voting_payload, _voting_output_path(Path(output_path)))
     return payload
