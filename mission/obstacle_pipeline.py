@@ -85,16 +85,22 @@ def _unlocalized_detection(detection: Mapping[str, Any]) -> dict[str, object]:
     return result
 
 
-VOTE_CLASSES = ("crater", "missile", "cluster", "dumb")
+UXO_VOTE_CLASSES = {"missile", "cluster", "dumb"}
+VOTE_CLASSES = ("crater", "uxo")
 
 
-def _empty_vote_bucket() -> dict[str, object]:
-    return {"count": 0, "frames": [], "confidences": []}
+def _empty_vote_bucket(class_name: str) -> dict[str, object]:
+    bucket: dict[str, object] = {"count": 0, "frames": [], "confidences": []}
+    if class_name == "crater":
+        bucket["sizes"] = []
+    else:
+        bucket["classes"] = []
+    return bucket
 
 
 def _zone_vote_bucket(vote_zones: dict[str, dict[str, dict[str, object]]], zone: str) -> dict[str, dict[str, object]]:
     if zone not in vote_zones:
-        vote_zones[zone] = {class_name: _empty_vote_bucket() for class_name in VOTE_CLASSES}
+        vote_zones[zone] = {class_name: _empty_vote_bucket(class_name) for class_name in VOTE_CLASSES}
     return vote_zones[zone]
 
 
@@ -109,14 +115,23 @@ def _record_voting_items(
         if not isinstance(zone, str) or not zone or zone == UNKNOWN_ZONE:
             continue
 
-        zone_votes = _zone_vote_bucket(vote_zones, zone)
-        class_name = str(item.get("type"))
-        if class_name not in zone_votes:
+        item_type = str(item.get("type"))
+        if item_type == "crater":
+            bucket_name = "crater"
+        elif item_type in UXO_VOTE_CLASSES:
+            bucket_name = "uxo"
+        else:
             continue
-        bucket = zone_votes[class_name]
+
+        zone_votes = _zone_vote_bucket(vote_zones, zone)
+        bucket = zone_votes[bucket_name]
         bucket["count"] = int(bucket["count"]) + 1
         bucket["frames"].append(frame_index)  # type: ignore[union-attr]
         bucket["confidences"].append(item.get("confidence"))  # type: ignore[union-attr]
+        if bucket_name == "crater":
+            bucket["sizes"].append(item.get("size"))  # type: ignore[union-attr]
+        else:
+            bucket["classes"].append(item.get("type"))  # type: ignore[union-attr]
 
 
 ROUTE_CHOICES = ("TWA", "RW", "TWB")
