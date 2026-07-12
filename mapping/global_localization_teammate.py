@@ -39,7 +39,7 @@ import math
 import os
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import cv2
 import numpy as np
@@ -436,7 +436,6 @@ def read_sampled_video_frames(
     stride: int,
     max_frames: Optional[int],
     resize_width: Optional[int],
-    frame_transform: Optional[Callable[[np.ndarray], np.ndarray]] = None,
 ) -> List[Tuple[int, np.ndarray]]:
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
@@ -451,8 +450,6 @@ def read_sampled_video_frames(
         if not ret:
             break
         if frame_idx % stride == 0:
-            if frame_transform is not None:
-                frame = frame_transform(frame)
             frame = resize_keep_width(frame, resize_width)
             frames.append((frame_idx, frame))
             if max_frames is not None and len(frames) >= max_frames:
@@ -742,7 +739,6 @@ def find_best_aruco_frame_in_video(
     frame_stride: int = 5,
     min_markers: int = 4,
     max_scan_frames: Optional[int] = None,
-    frame_transform: Optional[Callable[[np.ndarray], np.ndarray]] = None,
 ) -> Tuple[np.ndarray, int, List[Dict[str, object]]]:
     """Find a top-view frame with the strongest four-corner ArUco detection."""
     dictionary_name = resolve_dictionary_name(dictionary_name)
@@ -766,8 +762,6 @@ def find_best_aruco_frame_in_video(
         if idx % stride != 0:
             idx += 1
             continue
-        if frame_transform is not None:
-            frame = frame_transform(frame)
 
         markers = detect_aruco_markers(frame, dictionary_name=dictionary_name)
         if len(markers) >= min_markers:
@@ -896,9 +890,8 @@ class FastTopViewMosaicBuilder:
     Then it warps all accepted keyframes once onto a single canvas.
     """
 
-    def __init__(self, config: MapBuildConfig, frame_transform: Optional[Callable[[np.ndarray], np.ndarray]] = None):
+    def __init__(self, config: MapBuildConfig):
         self.cfg = config
-        self.frame_transform = frame_transform
         if self.cfg.aruco_dictionary is None:
             self.cfg.aruco_dictionary = resolve_dictionary_name(None)
         if self.cfg.aruco_corner_ids is None:
@@ -1014,7 +1007,6 @@ class FastTopViewMosaicBuilder:
             stride=self.cfg.frame_stride,
             max_frames=self.cfg.max_keyframes,
             resize_width=self.cfg.resize_width,
-            frame_transform=self.frame_transform,
         )
         if len(sampled) < 2:
             raise ValueError(f"Not enough sampled frames from {video_path}")
@@ -1146,7 +1138,6 @@ class FastTopViewMosaicBuilder:
                             dictionary_name=self.cfg.aruco_dictionary,
                             frame_stride=self.cfg.aruco_best_frame_stride,
                             min_markers=self.cfg.aruco_min_markers,
-                            frame_transform=self.frame_transform,
                         )
                         rectified, H_aruco, src_corners, selected_markers, all_markers = rectify_map_with_aruco_corners(
                             best_frame,

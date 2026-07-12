@@ -1,14 +1,10 @@
-"""High-level video-based global map generation controller.
-
-The implementation delegates map construction to the teammate's feature-based
-mosaic builder while preserving the public ``build_global_map`` interface used
-by mission, calibration, localization, and ground-mission adapters.
-"""
+"""Adapter for teammate FastTopViewMosaicBuilder global-map generation."""
 
 from __future__ import annotations
 
 import json
 import pickle
+import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Mapping, Sequence
@@ -21,7 +17,7 @@ from mapping.coordinate_system import default_coordinate_system
 
 @dataclass
 class MapBuildConfig:
-    """Configuration for teammate feature-mosaic map building."""
+    """Adapter-level configuration forwarded to teammate map builder."""
 
     frame_stride: int = 10
     max_keyframes: int = 140
@@ -54,7 +50,6 @@ def _camera_model_from_optional_inputs(
     camera_model: CameraModel | None,
     calibration_path: str | Path | None,
 ) -> CameraModel | None:
-    """Validate legacy calibration inputs without forcing the new mapper to use them."""
     if camera_model is not None:
         return camera_model
     if calibration_path is None:
@@ -65,14 +60,12 @@ def _camera_model_from_optional_inputs(
     return CameraModel.load(calibration_file)
 
 
-
 def _config_from_legacy_args(
     *,
     sample_interval: int,
     dictionary_name: str | None,
     marker_positions: Mapping[int, Sequence[float]] | None,
 ) -> MapBuildConfig:
-    """Translate previous ArUco-frame API knobs to teammate mapper config."""
     aruco_config = get_aruco_config()
     cfg = MapBuildConfig(
         frame_stride=max(1, int(sample_interval)),
@@ -80,16 +73,42 @@ def _config_from_legacy_args(
         aruco_corner_ids=aruco_config.corner_ids,
     )
     if marker_positions:
-        # Previous callers may pass marker positions to identify the four corner
-        # IDs. The teammate mapper expects IDs in final TL, TR, BR, BL order; sort
-        # by normalized/yx position as a best-effort compatibility bridge.
         ordered = sorted(
             marker_positions.items(),
             key=lambda item: (float(item[1][1]), float(item[1][0])),
         )
         if len(ordered) >= 4:
-            cfg.aruco_corner_ids = tuple(int(marker_id) for marker_id, _ in ordered[:4])  # type: ignore[assignment]
+            cfg.aruco_corner_ids = tuple(int(marker_id) for marker_id, _ in ordered[:4])
     return cfg
+
+
+def _write_undistorted_video(source_video: Path, output_video: Path, camera_model: CameraModel) -> Path:
+    """Create the calibrated video consumed unchanged by FastTopViewMosaicBuilder."""
+    import cv2
+
+    cap = cv2.VideoCapture(str(source_video))
+    if not cap.isOpened():
+        raise FileNotFoundError(f"Cannot open mapping video: {source_video}")
+
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    writer = cv2.VideoWriter(str(output_video), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
+    if not writer.isOpened():
+        cap.release()
+        raise OSError(f"Cannot create calibrated mapping video: {output_video}")
+
+    try:
+        while True:
+            ok, frame = cap.read()
+            if not ok:
+                break
+            writer.write(undistort_frame(frame, camera_model))
+    finally:
+        writer.release()
+        cap.release()
+
+    return output_video
 
 
 def _rectified_pixel_to_world_homography(
@@ -98,23 +117,12 @@ def _rectified_pixel_to_world_homography(
     marker_positions: Mapping[int, Sequence[float]],
     corner_ids: Sequence[int],
 ):
-    """Return a global-map-pixel to world-coordinate homography.
-
-    The legacy homography artifact represented image pixels in the generated map
-    coordinate system. With the teammate mapper, the generated image is already
-    rectified, so this artifact maps rectified map pixels to the same coordinate
-    system saved in ``map_info.json``.
-    """
+    """Create the legacy map-pixel -> world-coordinate artifact only."""
     import cv2
     import numpy as np
 
     src = np.array(
-        [
-            [0.0, 0.0],
-            [float(image_width), 0.0],
-            [float(image_width), float(image_height)],
-            [0.0, float(image_height)],
-        ],
+        [[0.0, 0.0], [float(image_width), 0.0], [float(image_width), float(image_height)], [0.0, float(image_height)]],
         dtype=np.float32,
     )
     missing = [marker_id for marker_id in corner_ids if marker_id not in marker_positions]
@@ -124,7 +132,7 @@ def _rectified_pixel_to_world_homography(
     dst = np.array([marker_positions[marker_id] for marker_id in corner_ids], dtype=np.float32)
     homography, _ = cv2.findHomography(src, dst)
     if homography is None:
-        raise ValueError("Failed to compute rectified map homography.")
+        raise ValueError("Failed to compute rectified map artifact homography.")
     return homography
 
 
@@ -159,14 +167,15 @@ def build_global_map(
     dictionary_name: str | None = None,
     map_config: MapBuildConfig | None = None,
 ) -> dict[str, object]:
-    """Build a rectified bird's-eye global map from a top-view mapping video.
+    """Build current map artifacts by adapting inputs to teammate builder.
 
-    The signature intentionally remains compatible with the original mapping
-    implementation. When calibration is provided, each sampled video frame is
-    undistorted with the existing calibration module before feature stitching and
-    ArUco corner rectification.
+    Call order is: input video -> existing calibration undistort -> teammate
+    ``FastTopViewMosaicBuilder.build`` -> project artifact writers.
     """
     camera_model = _camera_model_from_optional_inputs(camera_model, calibration_path)
+    source_video = Path(video_path)
+    if not source_video.exists():
+        raise FileNotFoundError(f"Mapping video not found: {source_video}")
 
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -181,23 +190,28 @@ def build_global_map(
     if cfg.aruco_corner_ids is None:
         cfg.aruco_corner_ids = resolve_corner_ids(None)
 
+    from mapping.global_localization_teammate import FastTopViewMosaicBuilder, MapBuildConfig as TeammateMapBuildConfig
+
     global_map_path = output_path / "global_map.jpg"
     debug_dir = output_path / "map_debug"
-    from mapping.global_localization_teammate import (
-        FastTopViewMosaicBuilder,
-        MapBuildConfig as TeammateMapBuildConfig,
-    )
+    builder = FastTopViewMosaicBuilder(TeammateMapBuildConfig(**asdict(cfg)))
 
-    teammate_cfg = TeammateMapBuildConfig(**asdict(cfg))
-    builder = FastTopViewMosaicBuilder(
-        teammate_cfg,
-        frame_transform=(lambda frame: undistort_frame(frame, camera_model)) if camera_model is not None else None,
-    )
-    global_map, report = builder.build(
-        video_path=video_path,
-        output_path=global_map_path,
-        debug_dir=debug_dir,
-    )
+    temp_dir: tempfile.TemporaryDirectory[str] | None = None
+    builder_input = source_video
+    try:
+        if camera_model is not None:
+            temp_dir = tempfile.TemporaryDirectory(prefix="calibrated_mapping_")
+            calibrated_video = Path(temp_dir.name) / f"{source_video.stem}_undistorted.mp4"
+            builder_input = _write_undistorted_video(source_video, calibrated_video, camera_model)
+
+        global_map, report = builder.build(
+            video_path=builder_input,
+            output_path=global_map_path,
+            debug_dir=debug_dir,
+        )
+    finally:
+        if temp_dir is not None:
+            temp_dir.cleanup()
 
     map_info_path = output_path / "map_info.json"
     aruco_points_path = output_path / "aruco_points.json"
@@ -218,6 +232,8 @@ def build_global_map(
 
     metadata = {
         "source": "teammate_fast_top_view_mosaic",
+        "teammate_builder": "mapping.global_localization_teammate.FastTopViewMosaicBuilder.build",
+        "calibrated_input": camera_model is not None,
         "sampled_frames": report.get("sampled_frames") if isinstance(report, dict) else None,
         "accepted_keyframes": report.get("accepted_keyframes") if isinstance(report, dict) else None,
         "accepted_source_indices": report.get("accepted_source_indices") if isinstance(report, dict) else None,
