@@ -74,6 +74,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true", help="Validate routing without invoking CV dependencies")
     parser.add_argument("--debug", action="store_true", help="Save debug frames for the integrated ground pipeline")
     parser.add_argument("--fa-id", type=str, default=None, help="Facility ID used only by the facility mission")
+    parser.add_argument("--route", choices=("TWA", "RW", "TWB"), default=None, help="Shooting route used only by the obstacle mission voting output")
     return parser.parse_args()
 
 
@@ -88,7 +89,7 @@ def main() -> None:
     elif args.mission == "mapping":
         run_map_pipeline(args.input, args.output, config, dry_run=args.dry_run)
     elif args.mission == "obstacle":
-        run_obstacle_pipeline(args.input, args.output, config, dry_run=args.dry_run)
+        run_obstacle_pipeline(args.input, args.output, config, dry_run=args.dry_run, route=args.route)
     else:  # argparse choices prevent this branch.
         raise ValueError(f"Unsupported mission: {args.mission}")
 

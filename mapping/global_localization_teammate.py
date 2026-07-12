@@ -8,11 +8,7 @@ TW/RW-only optimized version:
   - FA regions are not precomputed or drawn, reducing unnecessary feature matching work.
   - Strict route gating is kept to prevent visually similar zones from being selected out of order.
 
-Input videos expected by default in the same directory as this script:
-  - top_view.mp4
-  - TWA.mp4
-  - RW.mp4
-  - TWB.mp4
+Input videos are supplied by the project mission router or config, not by hardcoded filenames.
 
 Outputs:
   outputs/
@@ -94,12 +90,12 @@ class MapBuildConfig:
     aruco_min_markers: int = 4
     rectified_map_width: int = 1500
     rectified_map_height: int = 1200
-    # The top-view video is portrait, while the required global map is landscape 5:4.
+    # The mapping video may be portrait, while the required global map is landscape 5:4.
     # When the detected ArUco quadrilateral is portrait, rotate the source corner order
-    # before warping. "ccw" matches the current top_view.mp4 orientation.
+    # before warping. "ccw" matches the expected portrait mapping-video orientation.
     aruco_rotate_portrait_to_landscape: bool = True
     aruco_portrait_rotation: str = "ccw"  # "ccw" or "cw"
-    # If the stitched mosaic cannot detect all four markers, scan top_view.mp4 and
+    # If the stitched mosaic cannot detect all four markers, scan the provided video and
     # rectify the best single frame that contains four markers.
     aruco_best_frame_fallback: bool = True
     aruco_best_frame_stride: int = 5
@@ -157,7 +153,7 @@ class PipelineConfig:
     input_dir: Path = Path(".")
     output_dir: Path = Path("outputs")
 
-    top_view_video: str = "top_view.mp4"
+    top_view_video: Optional[str] = None
     global_map_name: str = "global_map.jpg"
 
     # Process every Nth frame in close-up videos.
@@ -298,12 +294,12 @@ def make_default_video_jobs(rw_reverse: bool = False) -> List[VideoJob]:
     """
     TW/RW-only video jobs.
 
-    Current filming direction:
-      TWA.mp4 : TW-A5 -> TW-A4 -> TW-A3 -> TW-A2 -> TW-A1
-      RW.mp4  : RW-01 -> RW-02 -> ... -> RW-10 by default
-      TWB.mp4 : TW-B5 -> TW-B4 -> TW-B3 -> TW-B2 -> TW-B1
+    Current default route direction:
+      TW-A: TW-A5 -> TW-A4 -> TW-A3 -> TW-A2 -> TW-A1
+      RW  : RW-01 -> RW-02 -> ... -> RW-10 by default
+      TW-B: TW-B5 -> TW-B4 -> TW-B3 -> TW-B2 -> TW-B1
 
-    If RW.mp4 was filmed in the opposite direction, set rw_reverse=True.
+    Video filenames must be supplied by callers; placeholder names are labels only.
     """
     rw_route = [f"RW-{i:02d}" for i in range(1, 11)]
     if rw_reverse:
@@ -313,21 +309,21 @@ def make_default_video_jobs(rw_reverse: bool = False) -> List[VideoJob]:
         # Strict route gating prevents the first frame of reverse routes such as
         # TWA/TWB from being incorrectly locked to a visually similar end zone.
         VideoJob(
-            "TWA.mp4", "TWA",
+            "", "TWA",
             [f"TW-A{i}" for i in range(5, 0, -1)],
             backtrack=0, lookahead=2,
             initial_wide_search=False,
             localizer_profile="default",
         ),
         VideoJob(
-            "RW.mp4", "RW",
+            "", "RW",
             rw_route,
             backtrack=0, lookahead=2,
             initial_wide_search=False,
             localizer_profile="default",
         ),
         VideoJob(
-            "TWB.mp4", "TWB",
+            "", "TWB",
             [f"TW-B{i}" for i in range(5, 0, -1)],
             backtrack=0, lookahead=2,
             initial_wide_search=False,
@@ -634,7 +630,7 @@ def _choose_four_corner_markers(
         rot = portrait_rotation.lower().strip()
         if rot == "ccw":
             # Source right side becomes final top side.
-            # This matches the current top_view.mp4: ID text side with FA-01~03 becomes top.
+            # This matches portrait source videos where the ID text side with FA-01~03 becomes top.
             return [spatial[1], spatial[2], spatial[3], spatial[0]]
         if rot == "cw":
             # Source left side becomes final top side.
@@ -2153,7 +2149,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 PIPELINE = PipelineConfig(
     input_dir=SCRIPT_DIR,
     output_dir=SCRIPT_DIR / "outputs",
-    top_view_video="top_view.mp4",
+    top_view_video=None,
     localize_frame_stride=5,
     per_video_frame_stride={"TWA": 5, "RW": 5, "TWB": 5},
     debug_every_n_processed=5,
@@ -2176,7 +2172,7 @@ MAP_BUILDER = MapBuildConfig(
     use_aruco_rectification=True,
     aruco_dictionary=None,
     # If you know the exact marker IDs, set them in FINAL MAP order: TL, TR, BR, BL.
-    # For the currently uploaded top_view.mp4, automatic portrait->landscape ordering works.
+    # For portrait mapping videos, automatic portrait->landscape ordering usually works.
     aruco_corner_ids=None,
     rectified_map_width=1500,
     rectified_map_height=1200,
