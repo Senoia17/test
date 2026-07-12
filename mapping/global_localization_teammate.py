@@ -48,6 +48,8 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 import cv2
 import numpy as np
 
+from mapping.aruco_config import resolve_corner_ids, resolve_dictionary_name
+
 
 # ============================================================
 # 0. Global constants / configs
@@ -84,12 +86,11 @@ class MapBuildConfig:
     # After building a rough mosaic, detect the four corner ArUco markers and
     # warp the map to this fixed aspect ratio so region splitting becomes stable.
     use_aruco_rectification: bool = True
-    # The uploaded marker pattern is DICT_5X5_50.
-    # If your printed markers change later, update this value.
-    aruco_dictionary: str = "DICT_5X5_50"
+    # Loaded from config.yaml when not provided explicitly.
+    aruco_dictionary: Optional[str] = None
     # Optional marker IDs in FINAL MAP order: top-left, top-right, bottom-right, bottom-left.
     # Leave None to infer from marker positions.
-    aruco_corner_ids: Optional[Tuple[int, int, int, int]] = None
+    aruco_corner_ids: Optional[Tuple[int, ...]] = None
     aruco_min_markers: int = 4
     rectified_map_width: int = 1500
     rectified_map_height: int = 1200
@@ -514,12 +515,13 @@ def _get_aruco_dictionary(dictionary_name: str):
 
 def detect_aruco_markers(
     image_bgr: np.ndarray,
-    dictionary_name: str = "DICT_4X4_50",
+    dictionary_name: Optional[str] = None,
 ) -> List[Dict[str, object]]:
     """
     Detect ArUco markers and return dictionaries with id, corners and center.
     Compatible with both newer and older OpenCV ArUco APIs.
     """
+    dictionary_name = resolve_dictionary_name(dictionary_name)
     aruco = cv2.aruco
     dictionary = _get_aruco_dictionary(dictionary_name)
     gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY) if image_bgr.ndim == 3 else image_bgr
@@ -544,8 +546,8 @@ def detect_aruco_markers(
         center = pts.mean(axis=0)
         markers.append({
             "id": int(marker_id),
-            "corners": pts,
-            "center": center,
+            "corners": pts.astype(float).tolist(),
+            "center": center.astype(float).tolist(),
         })
     return markers
 
@@ -584,7 +586,7 @@ def _quad_is_portrait_from_markers(markers_tl_tr_br_bl: List[Dict[str, object]])
 
 def _choose_four_corner_markers(
     markers: List[Dict[str, object]],
-    corner_ids: Optional[Tuple[int, int, int, int]] = None,
+    corner_ids: Optional[Tuple[int, ...]] = None,
     rotate_portrait_to_landscape: bool = True,
     portrait_rotation: str = "ccw",
 ) -> List[Dict[str, object]]:
@@ -644,8 +646,8 @@ def _choose_four_corner_markers(
 
 def estimate_map_corners_from_aruco(
     image_bgr: np.ndarray,
-    dictionary_name: str = "DICT_5X5_50",
-    corner_ids: Optional[Tuple[int, int, int, int]] = None,
+    dictionary_name: Optional[str] = None,
+    corner_ids: Optional[Tuple[int, ...]] = None,
     rotate_portrait_to_landscape: bool = True,
     portrait_rotation: str = "ccw",
 ) -> Tuple[np.ndarray, List[Dict[str, object]], List[Dict[str, object]]]:
@@ -657,6 +659,9 @@ def estimate_map_corners_from_aruco(
         selected_markers: selected markers in FINAL MAP TL, TR, BR, BL order.
         all_markers: all detected markers.
     """
+    dictionary_name = resolve_dictionary_name(dictionary_name)
+    corner_ids = resolve_corner_ids(corner_ids)
+
     markers = detect_aruco_markers(image_bgr, dictionary_name=dictionary_name)
     selected = _choose_four_corner_markers(
         markers,
@@ -706,8 +711,8 @@ def _markers_to_jsonable_in_rectified(
 def rectify_map_with_aruco_corners(
     image_bgr: np.ndarray,
     out_size: Tuple[int, int] = (1500, 1200),
-    dictionary_name: str = "DICT_5X5_50",
-    corner_ids: Optional[Tuple[int, int, int, int]] = None,
+    dictionary_name: Optional[str] = None,
+    corner_ids: Optional[Tuple[int, ...]] = None,
     rotate_portrait_to_landscape: bool = True,
     portrait_rotation: str = "ccw",
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, List[Dict[str, object]], List[Dict[str, object]]]:
@@ -734,12 +739,14 @@ def rectify_map_with_aruco_corners(
 
 def find_best_aruco_frame_in_video(
     video_path: Path | str,
-    dictionary_name: str = "DICT_5X5_50",
+    dictionary_name: Optional[str] = None,
     frame_stride: int = 5,
     min_markers: int = 4,
     max_scan_frames: Optional[int] = None,
 ) -> Tuple[np.ndarray, int, List[Dict[str, object]]]:
     """Find a top-view frame with the strongest four-corner ArUco detection."""
+    dictionary_name = resolve_dictionary_name(dictionary_name)
+
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         raise FileNotFoundError(f"Cannot open video for ArUco fallback: {video_path}")
@@ -889,6 +896,10 @@ class FastTopViewMosaicBuilder:
 
     def __init__(self, config: MapBuildConfig):
         self.cfg = config
+        if self.cfg.aruco_dictionary is None:
+            self.cfg.aruco_dictionary = resolve_dictionary_name(None)
+        if self.cfg.aruco_corner_ids is None:
+            self.cfg.aruco_corner_ids = resolve_corner_ids(None)
         self.backend = FeatureBackend(
             prefer_sift=config.prefer_sift,
             orb_features=config.orb_features,
@@ -2163,7 +2174,7 @@ MAP_BUILDER = MapBuildConfig(
     max_canvas_side=5200,
     crop_black_border=True,
     use_aruco_rectification=True,
-    aruco_dictionary="DICT_5X5_50",
+    aruco_dictionary=None,
     # If you know the exact marker IDs, set them in FINAL MAP order: TL, TR, BR, BL.
     # For the currently uploaded top_view.mp4, automatic portrait->landscape ordering works.
     aruco_corner_ids=None,
