@@ -300,7 +300,32 @@ def run_obstacle_pipeline(
             frame_summaries.append(frame_summary)
             continue
 
-        analyzed = analyze_obstacles(detections, H_frame_to_global, zone_lookup=zone_lookup)
+        frame_to_field_H = H_frame_to_global
+        if homography_artifact is not None:
+            import numpy as np
+
+            frame_to_field_H = np.asarray(homography_artifact, dtype=float) @ np.asarray(
+                H_frame_to_global,
+                dtype=float,
+            )
+        print(f"[Obstacle] frame={frame_index} frame_to_field_H={frame_to_field_H}")
+
+        analyzed = analyze_obstacles(detections, frame_to_field_H, zone_lookup=zone_lookup)
+        analyzed_positions = [
+            item.get("position")
+            for item in [*analyzed["craters"], *analyzed["uxos"]]
+            if item.get("position") is not None
+        ]
+        if analyzed_positions:
+            xs = [float(point[0]) for point in analyzed_positions]  # type: ignore[index]
+            ys = [float(point[1]) for point in analyzed_positions]  # type: ignore[index]
+            print(
+                f"[Obstacle] frame={frame_index} analyzer_positions={analyzed_positions} "
+                f"position_range=x[{min(xs):.3f},{max(xs):.3f}] y[{min(ys):.3f},{max(ys):.3f}]"
+            )
+        else:
+            print(f"[Obstacle] frame={frame_index} analyzer_positions=[] position_range=empty")
+
         _record_voting_items(
             analyzed,
             frame_index=frame_index,
