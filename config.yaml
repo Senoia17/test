@@ -24,11 +24,12 @@ mapping:
 models:
   obstacle:
     directory: models/obstacle
-    version: best.pt
+    weights: best.pt
     pretrained: yolo11s.pt
   facility:
     directory: models/facility
-    version: best.pt
+    weights: best.pt
+    pretrained: yolo26n-cls.pt
 
 missions:
   obstacle:

@@ -32,7 +32,6 @@ ground_mission/
     geometry.py
     infer_ground.py
     json_writer.py
-    train_ground.py
     zone_locator.py
   weights/
   outputs/
@@ -47,7 +46,7 @@ pip install ultralytics opencv-python numpy pyyaml shapely
 ## Train
 
 ```bash
-python src/train_ground.py
+python -m obstacle.train
 ```
 
 The trained model will be saved under `runs/ground_detector/weights/best.pt`.

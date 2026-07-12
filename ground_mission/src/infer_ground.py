@@ -126,7 +126,7 @@ def main():
 
     weights_path = Path(args.weights) if args.weights else _resolve_default_weights_path()
     if weights_path is None:
-        raise ValueError("Missing models.obstacle.directory/version in config.yaml")
+        raise ValueError("Missing models.obstacle.directory/weights in config.yaml")
 
     infer(
         weights_path=weights_path,

@@ -36,7 +36,7 @@ def run_facility_pipeline(
 
     model_path = resolve_model_weight_path(config, "facility")
     if model_path is None:
-        raise ValueError("Missing models.facility.directory/version in config.yaml")
+        raise ValueError("Missing models.facility.directory/weights in config.yaml")
     if not model_path.exists():
         raise FileNotFoundError(f"Facility model weights not found: {model_path}")
 

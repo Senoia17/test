@@ -413,7 +413,7 @@ if __name__ == "__main__":
     IMAGE_PATH = "FA-02_crop.jpg"
     MODEL_PATH = resolve_model_weight_path(load_config(CONFIG_PATH), "facility")
     if MODEL_PATH is None:
-        raise ValueError("Missing models.facility.directory/version in config.yaml")
+        raise ValueError("Missing models.facility.directory/weights in config.yaml")
 
     analyze_single_crop(
         image_path=IMAGE_PATH,

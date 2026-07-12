@@ -13,22 +13,36 @@ DATASET_DIR: Path = BASE_DIR / "dataset"
 DATA_YAML: Path = DATASET_DIR / "data.yaml"
 
 WEIGHTS_DIR: Path = PROJECT_ROOT / "models" / "obstacle"
-PRETRAINED_MODEL_PATH: Path = WEIGHTS_DIR / "yolo11s.pt"
 
 
-def _configured_model_path() -> Path:
+def _load_project_config() -> dict:
     if str(PROJECT_ROOT) not in sys.path:
         sys.path.insert(0, str(PROJECT_ROOT))
 
     from main import load_config
+
+    return load_config(PROJECT_ROOT / "config.yaml")
+
+
+def _configured_pretrained_model_path() -> Path:
+    from mission.model_weights import resolve_pretrained_model_path
+
+    pretrained_path = resolve_pretrained_model_path(_load_project_config(), "obstacle")
+    if pretrained_path is None:
+        raise ValueError("Missing models.obstacle.pretrained in config.yaml")
+    return Path(pretrained_path)
+
+
+def _configured_model_path() -> Path:
     from mission.model_weights import resolve_model_weight_path
 
-    model_path = resolve_model_weight_path(load_config(PROJECT_ROOT / "config.yaml"), "obstacle")
+    model_path = resolve_model_weight_path(_load_project_config(), "obstacle")
     if model_path is None:
-        raise ValueError("Missing models.obstacle.directory/version in config.yaml")
+        raise ValueError("Missing models.obstacle.directory/weights in config.yaml")
     return model_path
 
 
+PRETRAINED_MODEL_PATH: Path = _configured_pretrained_model_path()
 MODEL_PATH: Path = _configured_model_path()
 
 INPUT_DIR: Path = BASE_DIR / "input"
