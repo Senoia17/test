@@ -111,12 +111,11 @@ class GroundMissionPipeline:
         self.debug = debug
         self.output = output
         paths = config.get("paths", {})
-        models = config.get("models", {})
         mission_config = config.get("missions", {}).get("obstacle", {})
 
         self.calibration = CalibrationAdapter(paths.get("calibration"))
         self.detection = DetectionAdapter(
-            models.get("obstacle_weights") or models.get("ground_weights"),
+            resolve_model_weight_path(config, "obstacle"),
             conf=float(mission_config.get("conf", 0.3)),
             imgsz=int(mission_config.get("imgsz", 1280)),
         )

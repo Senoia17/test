@@ -1,4 +1,5 @@
-import os
+"""Train the facility damage classification model."""
+
 from pathlib import Path
 
 import torch
@@ -9,9 +10,12 @@ from ultralytics import YOLO
 # 1. 설정
 # =========================
 
-DATA_DIR = "dataset/facility_damage"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+FACILITY_DIR = Path(__file__).resolve().parent
 
-PROJECT_DIR = "runs/facility"
+DATA_DIR = FACILITY_DIR / "dataset" / "facility_damage"
+
+PROJECT_DIR = REPO_ROOT / "runs" / "facility"
 RUN_NAME = "facility_damage_cls"
 
 IMG_SIZE = 320
@@ -22,45 +26,19 @@ WORKERS = 4
 
 
 # =========================
-# 2. 사용 가능한 YOLO-cls weight 찾기
+# 2. config 기반 YOLO-cls pretrained weight 선택
 # =========================
 
 def find_yolo_cls_weight():
-    """
-    대회 환경에서 인터넷이 막혀 있을 수 있으므로,
-    로컬에 있는 cls weight를 우선 탐색한다.
+    """Return the configured Facility YOLO-CLS pretrained checkpoint."""
+    from main import load_config
+    from mission.model_weights import resolve_pretrained_model_path
 
-    추천 우선순위:
-    1. yolo26n-cls.pt
-    2. yolo11n-cls.pt
-    3. yolov8n-cls.pt
-    """
-
-    candidate_names = [
-        "yolo26n-cls.pt",
-        "yolo11n-cls.pt",
-        "yolov8n-cls.pt",
-        "yolo8n-cls.pt",
-    ]
-
-    search_dirs = [
-        ".",
-        "./weights",
-        "/weights",
-        "./models",
-    ]
-
-    for d in search_dirs:
-        for name in candidate_names:
-            p = Path(d) / name
-            if p.exists():
-                print(f"[INFO] Found weight: {p}")
-                return str(p)
-
-    # 로컬 weight가 없으면 ultralytics가 다운로드를 시도할 수 있음.
-    # 인터넷 제한 환경이면 실패할 수 있으므로 주의.
-    print("[WARN] No local cls weight found. Fallback to yolov8n-cls.pt")
-    return "yolov8n-cls.pt"
+    weight_path = resolve_pretrained_model_path(load_config(REPO_ROOT / "config.yaml"), "facility")
+    if weight_path is None:
+        raise ValueError("Missing models.facility.pretrained in config.yaml")
+    print(f"[INFO] Using configured pretrained weight: {weight_path}")
+    return str(weight_path)
 
 
 def check_dataset_structure(data_dir):

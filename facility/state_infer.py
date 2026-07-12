@@ -1,3 +1,5 @@
+"""Facility state inference and video aggregation utilities."""
+
 from detection.classifier import YoloClassifier
 
 
@@ -124,7 +126,7 @@ class FacilityStateClassifier:
     ):
         """
         damage_model_path:
-            runs/facility/facility_damage_cls/weights/best.pt
+            configured Facility YOLO-CLS weight path
 
         damaged_threshold:
             damaged confidence가 이 값보다 낮으면 애매한 damaged로 처리.
@@ -402,8 +404,16 @@ def analyze_facility_video(
 
 
 if __name__ == "__main__":
-    MODEL_PATH = "runs/facility/facility_damage_cls/weights/best.pt"
+    from pathlib import Path
+
+    from main import load_config
+    from mission.model_weights import resolve_model_weight_path
+
+    CONFIG_PATH = Path("config.yaml")
     IMAGE_PATH = "FA-02_crop.jpg"
+    MODEL_PATH = resolve_model_weight_path(load_config(CONFIG_PATH), "facility")
+    if MODEL_PATH is None:
+        raise ValueError("Missing models.facility.directory/weights in config.yaml")
 
     analyze_single_crop(
         image_path=IMAGE_PATH,
