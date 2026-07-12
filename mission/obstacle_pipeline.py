@@ -184,14 +184,19 @@ def run_obstacle_pipeline(
         undistorted = undistort_frame(frame, camera_model)
         detections = detector.detect(undistorted)
         localization = localizer.localize(undistorted)
+        H_frame_to_global = None
+        if localization is not None:
+            H_frame_to_global = localization.get("H_frame_to_global")
+            if H_frame_to_global is None:
+                H_frame_to_global = localization.get("H")
 
         frame_summary: dict[str, object] = {
             "frame_index": frame_index,
             "detections": len(detections),
-            "localized": localization is not None,
+            "localized": H_frame_to_global is not None,
         }
 
-        if localization is None:
+        if localization is None or H_frame_to_global is None:
             frame_summary["reason"] = "localization_failed"
             for detection in detections:
                 item = _unlocalized_detection(detection)
@@ -203,7 +208,7 @@ def run_obstacle_pipeline(
             frame_summaries.append(frame_summary)
             continue
 
-        analyzed = analyze_obstacles(detections, localization["H"], zone_lookup=zone_lookup)
+        analyzed = analyze_obstacles(detections, H_frame_to_global, zone_lookup=zone_lookup)
         _record_region_votes(analyzed["craters"], crater_region_votes)
         _record_region_votes(analyzed["uxos"], uxo_region_votes)
         localization_method = localization.get("method")
@@ -227,6 +232,9 @@ def run_obstacle_pipeline(
             {
                 "localization_method": localization_method,
                 "localization_confidence": localization_confidence,
+                "center_px": localization.get("center_px"),
+                "center_m": localization.get("center_m"),
+                "zone": localization.get("zone"),
                 "craters": len(analyzed["craters"]),
                 "uxos": len(analyzed["uxos"]),
             }

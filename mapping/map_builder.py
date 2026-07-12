@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 from calibration.camera_model import CameraModel
+from calibration.undistort import undistort_frame
 from mapping.aruco_config import get_aruco_config, get_aruco_marker_positions, resolve_corner_ids, resolve_dictionary_name
 from mapping.coordinate_system import default_coordinate_system
 
@@ -161,11 +162,11 @@ def build_global_map(
     """Build a rectified bird's-eye global map from a top-view mapping video.
 
     The signature intentionally remains compatible with the original mapping
-    implementation. Calibration arguments are validated for existing callers, but
-    the teammate implementation performs feature stitching and ArUco corner
-    rectification directly from the mapping video.
+    implementation. When calibration is provided, each sampled video frame is
+    undistorted with the existing calibration module before feature stitching and
+    ArUco corner rectification.
     """
-    _camera_model_from_optional_inputs(camera_model, calibration_path)
+    camera_model = _camera_model_from_optional_inputs(camera_model, calibration_path)
 
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -188,7 +189,10 @@ def build_global_map(
     )
 
     teammate_cfg = TeammateMapBuildConfig(**asdict(cfg))
-    builder = FastTopViewMosaicBuilder(teammate_cfg)
+    builder = FastTopViewMosaicBuilder(
+        teammate_cfg,
+        frame_transform=(lambda frame: undistort_frame(frame, camera_model)) if camera_model is not None else None,
+    )
     global_map, report = builder.build(
         video_path=video_path,
         output_path=global_map_path,

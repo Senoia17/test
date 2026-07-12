@@ -33,6 +33,9 @@ class LocalizationResult:
     method: str
     localized: bool
     error: str | None = None
+    center_px: list[float] | None = None
+    center_m: list[float] | None = None
+    zone: str | None = None
 
     def homography_for_analysis(self) -> Any | None:
         return self.homography_matrix
@@ -43,10 +46,14 @@ class LocalizationResult:
             homography = homography.tolist()
         return {
             "homography_matrix": homography,
+            "H_frame_to_global": homography,
             "confidence": self.confidence,
             "method": self.method,
             "localized": self.localized,
             "error": self.error,
+            "center_px": self.center_px,
+            "center_m": self.center_m,
+            "zone": self.zone,
         }
 
 
