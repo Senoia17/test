@@ -19,11 +19,7 @@ def train() -> None:
     if not config.DATA_YAML.exists():
         raise FileNotFoundError(f"Dataset YAML not found: {config.DATA_YAML}")
 
-    model_path = (
-        config.PRETRAINED_MODEL_PATH
-        if config.PRETRAINED_MODEL_PATH.exists()
-        else "yolo11s.pt"
-    )
+    model_path = config.PRETRAINED_MODEL_PATH
     logger.info("Starting YOLO training with model: %s", model_path)
 
     model = YOLO(str(model_path))

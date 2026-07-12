@@ -32,7 +32,6 @@ ground_mission/
     geometry.py
     infer_ground.py
     json_writer.py
-    train_ground.py
     zone_locator.py
   weights/
   outputs/
@@ -47,14 +46,14 @@ pip install ultralytics opencv-python numpy pyyaml shapely
 ## Train
 
 ```bash
-python src/train_ground.py
+python -m obstacle.train
 ```
 
 The trained model will be saved under `runs/ground_detector/weights/best.pt`.
 Copy it to:
 
 ```text
-weights/ground_best.pt
+../../models/obstacle/best.pt
 ```
 
 ## Create Homography
@@ -77,7 +76,7 @@ These map to a 500 cm x 400 cm field.
 ## Inference
 
 ```bash
-python src/infer_ground.py --source data/runway_video.mp4 --weights weights/ground_best.pt
+python src/infer_ground.py --source data/runway_video.mp4 --weights ../../models/obstacle/best.pt
 ```
 
 Outputs:

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 
-from mission.facility_pipeline import run_facility_pipeline
+from facility.run import run_facility_pipeline
 from mission.map_pipeline import run_map_pipeline
 from mission.obstacle_pipeline import run_obstacle_pipeline
 from mission.pipeline import run_ground_pipeline
@@ -73,6 +73,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config", type=Path, default=Path("config.yaml"))
     parser.add_argument("--dry-run", action="store_true", help="Validate routing without invoking CV dependencies")
     parser.add_argument("--debug", action="store_true", help="Save debug frames for the integrated ground pipeline")
+    parser.add_argument("--fa-id", type=str, default=None, help="Facility ID used only by the facility mission")
     return parser.parse_args()
 
 
@@ -83,7 +84,7 @@ def main() -> None:
     if args.mission == "ground":
         run_ground_pipeline(args.input, args.output, config, debug=args.debug, dry_run=args.dry_run)
     elif args.mission == "facility":
-        run_facility_pipeline(args.input, args.output, config, dry_run=args.dry_run)
+        run_facility_pipeline(args.input, args.output, config, dry_run=args.dry_run, fa_id=args.fa_id)
     elif args.mission == "mapping":
         run_map_pipeline(args.input, args.output, config, dry_run=args.dry_run)
     elif args.mission == "obstacle":

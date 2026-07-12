@@ -1,3 +1,5 @@
+"""Facility state inference and video aggregation utilities."""
+
 from detection.classifier import YoloClassifier
 
 
@@ -14,6 +16,19 @@ FACILITY_INFO = {
     "FA-05": {"type": "bunker"},
     "FA-06": {"type": "warehouse"},
 }
+
+
+def facility_metadata(fa_id):
+    if fa_id is None:
+        return {"fa_id": None, "zone": None, "facility_type": None}
+    if fa_id not in FACILITY_INFO:
+        available = ", ".join(sorted(FACILITY_INFO))
+        raise ValueError(f"Unknown facility id: {fa_id}. Available facility ids: {available}")
+    return {
+        "fa_id": fa_id,
+        "zone": fa_id,
+        "facility_type": FACILITY_INFO[fa_id]["type"],
+    }
 
 
 # =========================
@@ -124,7 +139,7 @@ class FacilityStateClassifier:
     ):
         """
         damage_model_path:
-            runs/facility/facility_damage_cls/weights/best.pt
+            configured Facility YOLO-CLS weight path
 
         damaged_threshold:
             damaged confidence가 이 값보다 낮으면 애매한 damaged로 처리.
@@ -170,13 +185,14 @@ class FacilityStateClassifier:
 
         fire = detect_fire_with_contour(bgr_crop)
 
-        facility_type = None
-        if fa_id in FACILITY_INFO:
-            facility_type = FACILITY_INFO[fa_id]["type"]
+        metadata = facility_metadata(fa_id)
+        facility_type = metadata["facility_type"]
+        zone = metadata["zone"]
 
         if fire["is_fire"]:
             return {
                 "fa_id": fa_id,
+                "zone": zone,
                 "facility_type": facility_type,
                 "status": "fire",
                 "confidence": fire["fire_score"],
@@ -198,6 +214,7 @@ class FacilityStateClassifier:
 
         return {
             "fa_id": fa_id,
+            "zone": zone,
             "facility_type": facility_type,
             "status": label,
             "confidence": conf,
@@ -364,6 +381,7 @@ def analyze_facility_video(
     from utils.video import iter_video_frames
     from calibration.undistort import undistort_frame
 
+    metadata = facility_metadata(fa_id)
     analyzer = FacilityStateClassifier(model_path)
     frame_results = []
 
@@ -392,7 +410,9 @@ def analyze_facility_video(
         method = "video_majority_vote"
 
     return {
-        "fa_id": fa_id,
+        "fa_id": metadata["fa_id"],
+        "zone": metadata["zone"],
+        "facility_type": metadata["facility_type"],
         "status": status,
         "confidence": float(confidence),
         "method": method,
@@ -402,8 +422,16 @@ def analyze_facility_video(
 
 
 if __name__ == "__main__":
-    MODEL_PATH = "runs/facility/facility_damage_cls/weights/best.pt"
+    from pathlib import Path
+
+    from main import load_config
+    from mission.model_weights import resolve_model_weight_path
+
+    CONFIG_PATH = Path("config.yaml")
     IMAGE_PATH = "FA-02_crop.jpg"
+    MODEL_PATH = resolve_model_weight_path(load_config(CONFIG_PATH), "facility")
+    if MODEL_PATH is None:
+        raise ValueError("Missing models.facility.directory/weights in config.yaml")
 
     analyze_single_crop(
         image_path=IMAGE_PATH,
