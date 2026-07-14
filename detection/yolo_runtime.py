@@ -10,6 +10,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from utils.yolo_device import move_yolo_model, select_yolo_device
+
 
 class YoloRuntime:
     """Thin wrapper around ``ultralytics.YOLO.predict``."""
@@ -30,14 +32,12 @@ class YoloRuntime:
         self.conf = conf
         self.verbose = verbose
         self.model = model if model is not None else self._load_model(self.weights)
+        if model is None:
+            self.device = move_yolo_model(self.model, str(self.device))
 
     @staticmethod
     def _default_device() -> str | int:
-        try:
-            import torch
-        except ModuleNotFoundError:
-            return "cpu"
-        return 0 if torch.cuda.is_available() else "cpu"
+        return select_yolo_device()
 
     @staticmethod
     def _load_model(weights: Path) -> Any:

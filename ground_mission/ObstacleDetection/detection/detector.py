@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 from ultralytics import YOLO
+from utils.yolo_device import move_yolo_model
 
 
 class YoloDetector:
@@ -17,7 +18,7 @@ class YoloDetector:
         model_path: Path,
         confidence: float,
         image_size: int,
-        device: str,
+        device: str | None,
     ) -> None:
         """Initialize a YOLO detector."""
         if not model_path.exists():
@@ -29,6 +30,7 @@ class YoloDetector:
         self.image_size = image_size
         self.device = device
         self.model = YOLO(str(model_path))
+        self.device = move_yolo_model(self.model, self.device)
 
     def detect_frame(self, frame: np.ndarray) -> list[dict]:
         """Detect objects in one frame without tracking."""

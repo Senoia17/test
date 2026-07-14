@@ -5,6 +5,12 @@ from pathlib import Path
 
 from ultralytics import YOLO
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from utils.yolo_device import move_yolo_model
+
 from crater_size import classify_crater_size
 from geometry import (
     bbox_center_xyxy,
@@ -52,6 +58,7 @@ def infer(
     imgsz=1280,
 ):
     model = YOLO(weights_path)
+    device = move_yolo_model(model)
     homography = load_homography(homography_path)
     zones = load_zones(zones_path)
 
@@ -62,6 +69,7 @@ def infer(
         source=source_path,
         conf=conf,
         imgsz=imgsz,
+        device=device,
         stream=True,
         verbose=False,
     )
