@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from zoneinfo import ZoneInfo
 
 SUPPORTED_VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".wmv"}
 FILE_STABLE_CHECK_INTERVAL_SEC = 1.0
@@ -28,9 +27,9 @@ MISSION_SEQUENCE: dict[int, dict[str, str]] = {
     5: {"label": "FA-05", "mission": "facility"},
     6: {"label": "FA-06", "mission": "facility"},
     7: {"label": "MAPPING", "mission": "mapping"},
-    8: {"label": "TW-A", "mission": "obstacle"},
-    9: {"label": "RW", "mission": "obstacle"},
-    10: {"label": "TW-B", "mission": "obstacle"},
+    8: {"label": "TW-A", "mission": "obstacle", "route": "TWA"},
+    9: {"label": "RW", "mission": "obstacle", "route": "RW"},
+    10: {"label": "TW-B", "mission": "obstacle", "route": "TWB"},
 }
 
 
@@ -50,6 +49,7 @@ class WatcherConfig:
     stable_required_count: int
     ready_timeout_sec: float
     skip_opencv_check: bool
+    archive_dir: Path = Path("archive")
 
 
 class MissionState:
@@ -230,7 +230,13 @@ class CommandMissionWatcher:
 
         mission_info = MISSION_SEQUENCE[sequence]
         output_path = self.config.output_dir / f"mission_{sequence:02d}_result.json"
-        command = build_command(self.config, str(mission_info["mission"]), video_path, output_path)
+        command = build_command(
+            self.config,
+            str(mission_info["mission"]),
+            video_path,
+            output_path,
+            mission_info.get("route"),
+        )
 
         logging.info(
             "Sequence %s (%s) will run mission=%s input=%s output=%s",
@@ -259,12 +265,26 @@ class CommandMissionWatcher:
 
         logging.info("Mission succeeded: sequence=%s", sequence)
         self.state.mark_completed(sequence, video_path, output_path, command)
+        archive_path = self.config.archive_dir / video_path.name
+        try:
+            self.config.archive_dir.mkdir(parents=True, exist_ok=True)
+            video_path.rename(archive_path)
+        except OSError as exc:
+            logging.warning("Video archiving failed; mission remains completed: %s", exc)
+        else:
+            logging.info("Video archived: %s", archive_path)
 
 
-def build_command(config: WatcherConfig, mission: str, input_path: Path, output_path: Path) -> list[str]:
+def build_command(
+    config: WatcherConfig,
+    mission: str,
+    input_path: Path,
+    output_path: Path,
+    route: str | None = None,
+) -> list[str]:
     """Build the external mission command exactly as requested."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    return [
+    command = [
         config.python_executable,
         str(config.main_py),
         "--mission",
@@ -274,6 +294,9 @@ def build_command(config: WatcherConfig, mission: str, input_path: Path, output_
         "--output",
         str(output_path),
     ]
+    if mission == "obstacle" and route:
+        command.extend(["--route", route])
+    return command
 
 
 def is_supported_video(path: Path) -> bool:
@@ -290,8 +313,8 @@ def resolve_path(path: Path) -> str:
 
 
 def now_iso() -> str:
-    """Return current KST timestamp."""
-    return datetime.now(ZoneInfo("Asia/Seoul")).isoformat()
+    """Return current local timestamp."""
+    return datetime.now().astimezone().isoformat()
 
 
 def configure_logging(log_file: Path) -> None:
@@ -315,7 +338,8 @@ def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="Watch a folder and route videos to external mission main.py commands.")
     parser.add_argument("--watch-dir", type=Path, default=Path("input_data"))
-    parser.add_argument("--output-dir", type=Path, default=Path("output_data"))
+    parser.add_argument("--archive-dir", type=Path, default=Path("archive"))
+    parser.add_argument("--output-dir", type=Path, default=Path("output_json"))
     parser.add_argument("--runtime-dir", type=Path, default=Path("runtime"))
     parser.add_argument("--main-py", type=Path, default=Path("main.py"))
     parser.add_argument("--python", dest="python_executable", default=sys.executable)
@@ -332,6 +356,7 @@ def make_config(args: argparse.Namespace) -> WatcherConfig:
     log_file = args.output_dir / "logs" / "mission_command_watcher.log"
     return WatcherConfig(
         watch_dir=args.watch_dir,
+        archive_dir=args.archive_dir,
         output_dir=args.output_dir,
         runtime_dir=args.runtime_dir,
         main_py=args.main_py,
