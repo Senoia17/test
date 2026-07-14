@@ -55,14 +55,27 @@ class WatcherConfig:
 class MissionState:
     """Persist sequence and processed source files for restart-safe command routing."""
 
-    def __init__(self, state_file: Path) -> None:
+    def __init__(self, state_file: Path, reset: bool = False) -> None:
         """Load state or initialize the default state."""
         self.state_file = state_file
-        self.data = self._load()
+        if reset:
+            self.reset()
+        else:
+            self.data = self._load()
 
     def next_sequence(self) -> int:
         """Return the logical sequence number for the next successful mission."""
         return int(self.data["next_sequence"])
+
+    def reset(self) -> None:
+        """Reset and persist state for a new watcher session."""
+        self.data = {
+            "next_sequence": 1,
+            "processed_source_files": [],
+            "completed_missions": [],
+            "failed_missions": [],
+        }
+        self.save()
 
     def is_processed(self, source_path: Path) -> bool:
         """Return True if this source path was already completed or skipped."""
@@ -230,6 +243,8 @@ class CommandMissionWatcher:
 
         mission_info = MISSION_SEQUENCE[sequence]
         output_path = self.config.output_dir / f"mission_{sequence:02d}_result.json"
+        if mission_info["mission"] == "mapping":
+            output_path = load_map_output_dir(Path("config.yaml"))
         command = build_command(
             self.config,
             str(mission_info["mission"]),
@@ -302,6 +317,22 @@ def build_command(
 def is_supported_video(path: Path) -> bool:
     """Return True for supported video files only."""
     return path.is_file() and path.suffix.lower() in SUPPORTED_VIDEO_EXTENSIONS
+
+
+def load_map_output_dir(config_path: Path) -> Path:
+    """Read paths.map_output_dir from the project configuration."""
+    in_paths_section = False
+    for raw_line in config_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.split("#", 1)[0].rstrip()
+        if not line:
+            continue
+        if not line.startswith(" "):
+            in_paths_section = line == "paths:"
+            continue
+        if in_paths_section and line.strip().startswith("map_output_dir:"):
+            value = line.strip().split(":", 1)[1].strip().strip('"\'')
+            return Path(value)
+    raise KeyError(f"paths.map_output_dir not found in {config_path}")
 
 
 def resolve_path(path: Path) -> str:
@@ -380,6 +411,7 @@ def main() -> None:
     config.output_dir.mkdir(parents=True, exist_ok=True)
     config.runtime_dir.mkdir(parents=True, exist_ok=True)
 
+    MissionState(config.state_file, reset=True)
     watcher = CommandMissionWatcher(config)
     if args.once:
         watcher.scan_once()
