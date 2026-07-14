@@ -1,0 +1,39 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# VS Code
+.vscode/
+
+# Runtime outputs
+output_json/*
+!output_json/.gitkeep
+
+# Runtime state
+runtime/*.json
+
+# Input videos
+input_data/*.mp4
+
+# Log files
+*.log
+
+# Log directory
+output_json/logs/
+
+# VS Code
+.vscode/
+
+__pycache__/
+*.pyc
+
+archive/
+input_data/
+output_json/
+runtime/
+
+data/map/
+models/**/best.pt
+.vscode/
+
+configs/calibration.json
