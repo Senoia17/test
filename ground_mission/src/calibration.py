@@ -41,29 +41,20 @@ _pkg = _load_calibration_package()
 CameraModel = _pkg.CameraModel
 Calibration = _pkg.Calibration
 calibrate_camera = _pkg.calibrate_camera
-estimate_chessboard_calibration = _pkg.estimate_chessboard_calibration
+estimate_aruco_calibration = _pkg.estimate_aruco_calibration
+load_calibration_config = _pkg.load_calibration_config
 load_calibration = _pkg.load_calibration
-read_image = _pkg.read_image
 save_calibration = _pkg.save_calibration
-sorted_image_paths = _pkg.sorted_image_paths
 undistort_frame = _pkg.undistort_frame
 undistort_image = _pkg.undistort_image
-IMAGE_EXTENSIONS = _pkg.calibrator.IMAGE_EXTENSIONS if hasattr(_pkg, "calibrator") else {
-    ".bmp", ".dib", ".jpeg", ".jpg", ".jpe", ".jp2", ".png", ".pbm", ".pgm", ".ppm", ".tif", ".tiff", ".webp"
-}
-
-
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Estimate drone camera calibration from chessboard images.")
-    parser.add_argument("--images-dir", type=Path, required=True, help="Directory of chessboard calibration images.")
+    parser = argparse.ArgumentParser(description="Estimate drone camera calibration from four ArUco marker videos.")
+    parser.add_argument("--videos", type=Path, nargs=4, required=True, metavar=("VIDEO_1", "VIDEO_2", "VIDEO_3", "VIDEO_4"))
+    parser.add_argument("--config", type=Path, default=_REPO_ROOT / "config.yaml")
     parser.add_argument("--output", type=Path, default=Path("configs/calibration.json"))
-    parser.add_argument("--chessboard-size", type=int, nargs=2, default=(9, 6), metavar=("INNER_X", "INNER_Y"))
-    parser.add_argument("--square-size-mm", type=float, default=25.0)
     args = parser.parse_args()
 
-    calibration = estimate_chessboard_calibration(
-        sorted_image_paths(args.images_dir), tuple(args.chessboard_size), args.square_size_mm
-    )
+    calibration = estimate_aruco_calibration(args.videos, load_calibration_config(args.config))
     save_calibration(calibration, args.output)
     print(f"Saved calibration to {args.output} with reprojection error {calibration.reprojection_error:.4f}")
 

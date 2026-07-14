@@ -80,9 +80,8 @@ python frame_homography_pipeline/process_frame_sequence.py \
   --frames-dir drone_frames \
   --output-dir sequence_outputs \
   --map-size-mm 5000 4000 \
-  --calibration-images-dir calibration_chessboards \
-  --chessboard-size 9 6 \
-  --square-size-mm 25 \
+  --calibration-videos marker_1.mp4 marker_2.mp4 marker_3.mp4 marker_4.mp4 \
+  --config config.yaml \
   --save-calibration-json camera_calibration.json
 ```
 

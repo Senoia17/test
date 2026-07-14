@@ -22,7 +22,6 @@ import argparse
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Iterable
 
 import cv2
 import numpy as np
@@ -90,24 +89,13 @@ def parse_args() -> argparse.Namespace:
         help="Optional camera calibration JSON containing camera_matrix and distortion_coefficients.",
     )
     parser.add_argument(
-        "--calibration-images-dir",
+        "--calibration-videos",
         type=Path,
-        help="Optional chessboard calibration image directory used to estimate lens distortion once.",
+        nargs=4,
+        metavar=("VIDEO_1", "VIDEO_2", "VIDEO_3", "VIDEO_4"),
+        help="Optional four ArUco videos used to estimate lens distortion once.",
     )
-    parser.add_argument(
-        "--chessboard-size",
-        type=int,
-        nargs=2,
-        metavar=("INNER_CORNERS_X", "INNER_CORNERS_Y"),
-        default=(9, 6),
-        help="Chessboard inner-corner grid for --calibration-images-dir. Default: 9 6.",
-    )
-    parser.add_argument(
-        "--square-size-mm",
-        type=float,
-        default=25.0,
-        help="Chessboard square size in millimeters for calibration. Default: 25.0.",
-    )
+    parser.add_argument("--config", type=Path, default=Path("config.yaml"), help="Project configuration file.")
     parser.add_argument(
         "--save-calibration-json",
         type=Path,
@@ -154,63 +142,20 @@ def save_calibration(calibration: Calibration, path: Path) -> None:
     path.write_text(json.dumps(asdict(calibration), indent=2), encoding="utf-8")
 
 
-def estimate_chessboard_calibration(
-    image_paths: Iterable[Path], chessboard_size: tuple[int, int], square_size_mm: float
-) -> Calibration:
-    object_points_template = np.zeros((chessboard_size[0] * chessboard_size[1], 3), np.float32)
-    object_points_template[:, :2] = np.mgrid[0 : chessboard_size[0], 0 : chessboard_size[1]].T.reshape(-1, 2)
-    object_points_template *= square_size_mm
-
-    object_points: list[np.ndarray] = []
-    image_points: list[np.ndarray] = []
-    image_size: tuple[int, int] | None = None
-
-    for path in image_paths:
-        image = read_image(path)
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        image_size = gray.shape[::-1]
-        found, corners = cv2.findChessboardCorners(gray, chessboard_size)
-        if not found:
-            continue
-        refined = cv2.cornerSubPix(
-            gray,
-            corners,
-            winSize=(11, 11),
-            zeroZone=(-1, -1),
-            criteria=(cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001),
-        )
-        object_points.append(object_points_template.copy())
-        image_points.append(refined)
-
-    if image_size is None:
-        raise RuntimeError("No calibration images were found.")
-    if len(object_points) < 5:
-        raise RuntimeError(
-            f"Only {len(object_points)} calibration images had detectable chessboards; at least 5 are recommended."
-        )
-
-    error, camera_matrix, distortion_coeffs, _, _ = cv2.calibrateCamera(
-        object_points, image_points, image_size, None, None
-    )
-    return Calibration(
-        camera_matrix=camera_matrix.tolist(),
-        distortion_coefficients=distortion_coeffs.reshape(-1).tolist(),
-        image_size=[image_size[0], image_size[1]],
-        reprojection_error=float(error),
-    )
-
-
 def resolve_calibration(args: argparse.Namespace) -> Calibration | None:
-    if args.calibration_json and args.calibration_images_dir:
-        raise ValueError("Use either --calibration-json or --calibration-images-dir, not both.")
+    if args.calibration_json and args.calibration_videos:
+        raise ValueError("Use either --calibration-json or --calibration-videos, not both.")
     if args.calibration_json:
         return load_calibration(args.calibration_json)
-    if args.calibration_images_dir:
-        calibration = estimate_chessboard_calibration(
-            sorted_image_paths(args.calibration_images_dir),
-            tuple(args.chessboard_size),
-            args.square_size_mm,
-        )
+    if args.calibration_videos:
+        import sys
+
+        repo_root = Path(__file__).resolve().parents[1]
+        if str(repo_root) not in sys.path:
+            sys.path.insert(0, str(repo_root))
+        from calibration.calibrator import estimate_aruco_calibration, load_calibration_config
+
+        calibration = estimate_aruco_calibration(args.calibration_videos, load_calibration_config(args.config))
         if args.save_calibration_json:
             save_calibration(calibration, args.save_calibration_json)
         return calibration
